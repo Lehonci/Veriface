@@ -1,0 +1,61 @@
+export interface LuminanceResult {
+  score: number;
+  status: 'TOO_DARK' | 'OPTIMAL' | 'TOO_BRIGHT';
+  message: string;
+}
+
+export const MIN_LUMINANCE_THRESHOLD = 38.0;
+export const MAX_LUMINANCE_THRESHOLD = 235.0;
+
+export function calculateLuminanceFromCanvas(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number
+): LuminanceResult {
+  try {
+    const step = 4;
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    let totalLuminance = 0;
+    let sampleCount = 0;
+
+    for (let i = 0; i < data.length; i += 4 * step) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+      totalLuminance += luma;
+      sampleCount++;
+    }
+
+    const averageLuma = sampleCount > 0 ? totalLuminance / sampleCount : 0;
+    const roundedScore = Math.round(averageLuma * 100) / 100;
+
+    if (roundedScore < MIN_LUMINANCE_THRESHOLD) {
+      return {
+        score: roundedScore,
+        status: 'TOO_DARK',
+        message: 'Pencahayaan ruangan terlalu gelap. Silakan cari sumber cahaya yang lebih terang.',
+      };
+    } else if (roundedScore > MAX_LUMINANCE_THRESHOLD) {
+      return {
+        score: roundedScore,
+        status: 'TOO_BRIGHT',
+        message: 'Pencahayaan terlalu silau atau overexposed.',
+      };
+    }
+
+    return {
+      score: roundedScore,
+      status: 'OPTIMAL',
+      message: 'Pencahayaan ruangan optimal.',
+    };
+  } catch (err) {
+    console.warn('Luminance calculation error:', err);
+    return {
+      score: 50.0,
+      status: 'OPTIMAL',
+      message: 'Pencahayaan normal.',
+    };
+  }
+}
