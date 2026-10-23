@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, ArrowRight, AlertCircle, Sparkles } from 'lucide-react';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -32,15 +33,30 @@ export default function AdminLoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-ambient-maroon">
-      <div className="w-full max-w-md glass-panel p-8 rounded-3xl border border-white/[0.08] shadow-2xl relative overflow-hidden">
-        <div className="absolute -top-20 left-1/2 -translate-x-1/2 w-48 h-48 bg-rose-600/30 rounded-full blur-3xl pointer-events-none" />
+    <div className="min-h-screen flex items-center justify-center p-4 bg-ambient-maroon relative overflow-hidden">
+      {/* Background Ambient Glowing Blobs */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+        <div className="absolute top-[10%] left-[25%] w-[45vw] h-[45vw] rounded-full bg-rose-600/22 blur-[140px] animate-pulse-glow" />
+        <div className="absolute bottom-[10%] right-[20%] w-[40vw] h-[40vw] rounded-full bg-maroon-700/25 blur-[130px]" />
+      </div>
 
+      <div className="w-full max-w-md glass-panel p-8 sm:p-10 rounded-3xl border border-white/[0.12] shadow-2xl relative z-10 overflow-hidden">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-rose-500 to-maroon-700 flex items-center justify-center shadow-lg shadow-rose-900/40 border border-rose-400/30 mb-4">
-            <ShieldCheck className="w-8 h-8 text-white" />
+          <div className="relative w-16 h-16 mx-auto rounded-2xl overflow-hidden shadow-xl shadow-rose-950/80 border border-rose-400/40 mb-4 bg-gradient-to-br from-rose-500/20 to-maroon-900/60 flex items-center justify-center p-2">
+            <Image
+              src="/logo.svg"
+              alt="Identity Gateway Logo"
+              width={48}
+              height={48}
+              priority
+              className="w-full h-full object-contain"
+            />
           </div>
-          <h2 className="text-2xl font-bold text-white tracking-tight">Host & Admin Login</h2>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[11px] font-semibold mb-2">
+            <Sparkles className="w-3 h-3 text-rose-400" />
+            <span>Host Portal Access</span>
+          </div>
+          <h2 className="text-2xl font-black text-white tracking-tight">Host & Admin Login</h2>
           <p className="text-xs text-rose-200/60 mt-1">
             Masuk untuk mengakses Dashboard Audit Visual & Pengaturan Zoom
           </p>

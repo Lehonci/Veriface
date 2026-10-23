@@ -115,8 +115,16 @@ export default function AdminSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground bg-ambient-maroon">
-      <Navbar showAdminLink={false} />
+    <div className="min-h-screen flex flex-col bg-ambient-maroon text-foreground relative overflow-x-hidden">
+      {/* Background Ambient Glowing Blobs for True Glassmorphism Refraction */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+        <div className="absolute top-[-10%] left-[25%] w-[50vw] h-[50vw] rounded-full bg-rose-600/18 blur-[140px] animate-pulse-glow" />
+        <div className="absolute top-[35%] right-[-10%] w-[45vw] h-[45vw] rounded-full bg-maroon-700/22 blur-[130px]" />
+        <div className="absolute bottom-[-10%] left-[5%] w-[40vw] h-[40vw] rounded-full bg-rose-900/25 blur-[150px]" />
+      </div>
+
+      <div className="relative z-10 flex flex-col min-h-screen">
+        <Navbar showAdminLink={false} />
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-6">
         <div className="flex items-center justify-between">
@@ -290,6 +298,7 @@ export default function AdminSettingsPage() {
           </div>
         </div>
       </main>
+      </div>
     </div>
   );
 }
