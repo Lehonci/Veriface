@@ -14,7 +14,7 @@ import {
   ApplicantIdentity,
   VerificationSuccessPayload,
 } from '@/types';
-import { ShieldCheck, Video, AlertTriangle, Sparkles, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 
 export default function GatewayPage() {
   const [identity, setIdentity] = useState<ApplicantIdentity>({
@@ -154,9 +154,15 @@ export default function GatewayPage() {
     }
   }
 
+  const isFormValid = Boolean(
+    identity.fullName.trim() &&
+    identity.email.trim() &&
+    identity.jobPosition.trim()
+  );
+
   const handleStartVerification = async () => {
-    if (!identity.fullName.trim() || !identity.email.trim() || !identity.jobPosition.trim()) {
-      alert('Harap isi Nama Lengkap, Email, dan Posisi terlebih dahulu.');
+    if (!isFormValid) {
+      alert('Harap lengkapi Nama Lengkap, Email, dan Posisi terlebih dahulu.');
       return;
     }
 
@@ -187,49 +193,50 @@ export default function GatewayPage() {
     startLivenessScan();
   };
 
+  const handleProceedClick = () => {
+    if (!isStreaming) {
+      startCamera();
+    } else {
+      handleStartVerification();
+    }
+  };
+
   const handleRetry = () => {
     setFailureInfo(null);
     resetScan();
   };
 
-  const isFormValid = Boolean(
-    identity.fullName.trim() &&
-    identity.email.trim() &&
-    identity.jobPosition.trim()
-  );
-
   return (
-    <div className="min-h-screen flex flex-col bg-ambient-maroon text-foreground relative overflow-x-hidden">
+    <div className="min-h-screen flex flex-col bg-ambient-maroon text-foreground relative overflow-x-hidden selection:bg-rose-500/30 selection:text-rose-200">
       {/* Background Ambient Glowing Blobs for True Glassmorphism Refraction */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <div className="absolute top-[-10%] left-[20%] w-[50vw] h-[50vw] rounded-full bg-rose-600/20 blur-[140px] animate-pulse-glow" />
-        <div className="absolute top-[40%] right-[-5%] w-[40vw] h-[40vw] rounded-full bg-maroon-700/25 blur-[130px]" />
-        <div className="absolute bottom-[-10%] left-[5%] w-[45vw] h-[45vw] rounded-full bg-rose-900/30 blur-[150px]" />
+        <div className="absolute top-[-10%] left-[20%] w-[55vw] h-[55vw] rounded-full bg-rose-600/25 blur-[150px] animate-pulse-glow" />
+        <div className="absolute top-[35%] right-[-10%] w-[45vw] h-[45vw] rounded-full bg-maroon-700/28 blur-[140px]" />
+        <div className="absolute bottom-[-10%] left-[5%] w-[50vw] h-[50vw] rounded-full bg-rose-950/40 blur-[160px]" />
       </div>
 
       <div className="relative z-10 flex flex-col min-h-screen">
+        {/* Floating Capsule Navbar */}
         <Navbar />
 
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col items-center gap-6">
-          {/* Header Title Section */}
-          <div className="text-center max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass-panel-subtle border border-rose-500/30 text-rose-300 text-xs font-semibold mb-3 shadow-md shadow-rose-950/40">
-              <Sparkles className="w-3.5 h-3.5 text-rose-400" />
-              <span>Identity Gateway Wawancara Kerja Online</span>
-            </div>
-            <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
-              Pre-Screening Biometrik &{' '}
-              <span className="bg-gradient-to-r from-rose-400 via-rose-300 to-amber-200 bg-clip-text text-transparent">
-                Passive Liveness
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 flex flex-col items-center gap-8 sm:gap-12">
+          {/* Centered Hero Section */}
+          <div className="text-center max-w-3xl pt-2 sm:pt-4">
+            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.12]">
+              Verifikasi identitas.
+              <br />
+              <span className="bg-gradient-to-r from-white via-rose-100 to-rose-300 bg-clip-text text-transparent">
+                Masuk dengan percaya diri.
               </span>
             </h1>
-            <p className="text-xs sm:text-sm text-rose-200/70 mt-2">
-              Verifikasi identitas biometrik 3D sebelum dialihkan ke ruang resmi Zoom Meeting.
+            <p className="text-xs sm:text-base text-rose-200/70 mt-4 max-w-xl mx-auto leading-relaxed">
+              Sistem pre-screening biometrik 3D liveness detection untuk wawancara kerja online yang aman, cepat, dan terpercaya.
             </p>
           </div>
 
+          {/* Virtual Camera Warning Alert */}
           {virtualCamBlocked && (
-            <div className="w-full max-w-4xl glass-panel p-6 rounded-3xl border border-rose-600/80 bg-rose-950/90 shadow-[0_0_50px_rgba(225,29,72,0.35)] animate-fade-in">
+            <div className="w-full max-w-6xl glass-panel p-6 rounded-3xl border border-rose-600/80 bg-rose-950/90 shadow-[0_0_50px_rgba(225,29,72,0.35)] animate-fade-in">
               <div className="flex items-start gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-rose-500/30 border border-rose-500/60 flex items-center justify-center text-rose-300 shrink-0 shadow-lg">
                   <AlertTriangle className="w-7 h-7" />
@@ -248,65 +255,70 @@ export default function GatewayPage() {
             </div>
           )}
 
-          {/* Form Data Pelamar */}
-          <div className="w-full max-w-4xl">
-            <IdentityForm
-              identity={identity}
-              onChange={(updated) => setIdentity((prev) => ({ ...prev, ...updated }))}
-              disabled={isScanning || isVerifying || Boolean(successPayload)}
-            />
+          {/* Main Desktop App Window (Figma 2-Column macOS Style Frame) */}
+          <div className="w-full max-w-6xl glass-panel rounded-[32px] border border-white/15 shadow-[0_25px_70px_rgba(0,0,0,0.7)] p-6 sm:p-10 relative overflow-hidden backdrop-blur-3xl bg-white/[0.04]">
+            {/* macOS Window Title Bar */}
+            <div className="flex items-center justify-between pb-6 mb-8 border-b border-white/[0.08]">
+              {/* 3 Window Control Dots */}
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-[#FF5F56] border border-black/20 inline-block shadow-sm"></span>
+                <span className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-black/20 inline-block shadow-sm"></span>
+                <span className="w-3 h-3 rounded-full bg-[#27C93F] border border-black/20 inline-block shadow-sm"></span>
+              </div>
+
+              {/* Title in center */}
+              <div className="hidden sm:block text-xs font-mono font-medium text-rose-200/50">
+                Identity Gateway &middot; Pre-Screening Liveness Session
+              </div>
+
+              {/* Status pill on right */}
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-[11px] font-semibold text-rose-200/70">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Active Gateway</span>
+              </div>
+            </div>
+
+            {/* 2-Column Split Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-stretch">
+              {/* Left Column: Form & Stepper (5 Cols) */}
+              <div className="lg:col-span-5 flex flex-col justify-between">
+                <IdentityForm
+                  identity={identity}
+                  onChange={(updated) => setIdentity((prev) => ({ ...prev, ...updated }))}
+                  disabled={isScanning || isVerifying || Boolean(successPayload)}
+                  onProceed={handleProceedClick}
+                  isStreaming={isStreaming}
+                  canProceed={isFormValid}
+                />
+              </div>
+
+              {/* Right Column: Prominent Spotlight Camera Viewport (7 Cols) */}
+              <div className="lg:col-span-7 flex flex-col justify-between">
+                <CameraView
+                  videoRef={videoRef}
+                  canvasRef={canvasRef}
+                  isStreaming={isStreaming}
+                  isLoadingCamera={isLoadingCamera}
+                  isModelLoading={isModelLoading}
+                  faceDetected={faceDetected}
+                  currentVariance={currentVariance}
+                  currentLuminance={currentLuminance}
+                  luminanceStatus={luminanceStatus}
+                  is3DLiveCurrent={is3DLiveCurrent}
+                  isScanning={isScanning || isVerifying}
+                  scanProgress={scanProgress}
+                  errorMessage={cameraError || modelError}
+                  onStartCamera={startCamera}
+                  onStartScan={handleStartVerification}
+                  canStartScan={isFormValid && luminanceStatus !== 'TOO_DARK'}
+                />
+              </div>
+            </div>
           </div>
 
-          {/* Step 2: Camera Viewport / Enable Camera Banner */}
-          {!isStreaming && !virtualCamBlocked && (
-            <div className="w-full max-w-4xl glass-panel p-8 sm:p-10 rounded-3xl border border-white/[0.12] text-center flex flex-col items-center gap-4 relative overflow-hidden shadow-2xl">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-rose-500/20 to-maroon-900/40 border border-rose-500/40 flex items-center justify-center text-rose-400 shadow-xl shadow-rose-950/60">
-                <Video className="w-8 h-8" />
-              </div>
-              <div>
-                <h3 className="text-lg sm:text-xl font-bold text-white">Aktifkan Kamera Webcam</h3>
-                <p className="text-xs sm:text-sm text-rose-200/70 mt-1 max-w-md mx-auto">
-                  Klik tombol di bawah untuk memberikan izin akses webcam dan memulai pemeriksaan lingkungan.
-                </p>
-              </div>
-              <button
-                onClick={() => startCamera()}
-                disabled={isLoadingCamera || !isFormValid}
-                className="px-8 py-3.5 rounded-2xl font-bold text-xs sm:text-sm uppercase tracking-wider bg-gradient-to-r from-rose-600 via-rose-500 to-maroon-600 hover:from-rose-500 hover:to-maroon-500 text-white shadow-xl shadow-rose-950/80 transition-all disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 border border-rose-400/30"
-              >
-                {isLoadingCamera ? 'Membuka Kamera...' : 'Buka & Izinkan Kamera'}
-              </button>
-              {!isFormValid && (
-                <p className="text-[11px] text-rose-300/60">
-                  * Harap lengkapi formulir identitas di atas terlebih dahulu.
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Large Camera Viewport When Streaming */}
-          {isStreaming && !virtualCamBlocked && (
-            <CameraView
-              videoRef={videoRef}
-              canvasRef={canvasRef}
-              isStreaming={isStreaming}
-              isLoadingCamera={isLoadingCamera}
-              isModelLoading={isModelLoading}
-              faceDetected={faceDetected}
-              currentVariance={currentVariance}
-              currentLuminance={currentLuminance}
-              luminanceStatus={luminanceStatus}
-              is3DLiveCurrent={is3DLiveCurrent}
-              isScanning={isScanning || isVerifying}
-              scanProgress={scanProgress}
-              errorMessage={cameraError || modelError}
-              onStartScan={handleStartVerification}
-              canStartScan={isFormValid && luminanceStatus !== 'TOO_DARK'}
-            />
-          )}
-
+          {/* Failure Alert Banner if any */}
           {failureInfo && (
-            <div className="w-full max-w-4xl">
+            <div className="w-full max-w-6xl">
               <FailureAlert
                 title={failureInfo.title}
                 reason={failureInfo.reason}
@@ -315,10 +327,12 @@ export default function GatewayPage() {
             </div>
           )}
 
+          {/* Success Modal Overlay */}
           {successPayload && <SuccessModal payload={successPayload} />}
         </main>
 
-        <footer className="w-full py-6 glass-panel border-t border-white/[0.08] text-center text-xs text-rose-200/50 mt-auto">
+        {/* Footer */}
+        <footer className="w-full py-6 text-center text-xs text-rose-200/40 border-t border-white/[0.06] mt-auto">
           <p>
             &copy; {new Date().getFullYear()} Pre-Screening Identity Gateway &middot; TRPL Computer Vision Research
           </p>
