@@ -10,7 +10,8 @@ import {
   DepthAnalysisResult,
   LandmarkPoint,
 } from '@/lib/cv/depthVariance';
-import { calculateLuminanceFromCanvas, LuminanceResult } from '@/lib/cv/luminance';
+import { calculateLuminanceFromVideo, LuminanceResult } from '@/lib/cv/luminance';
+import { checkFacialAccessories, FacialAccessoryCheckResult } from '@/lib/cv/facialAccessories';
 
 export interface UseFaceLandmarkerOptions {
   videoRef: React.RefObject<HTMLVideoElement>;
@@ -37,6 +38,9 @@ export interface UseFaceLandmarkerReturn {
   currentLuminance: number;
   luminanceStatus: 'TOO_DARK' | 'OPTIMAL' | 'TOO_BRIGHT';
   is3DLiveCurrent: boolean;
+  hasAccessory: boolean;
+  accessoryDetails: string[];
+  accessoryReason: string | null;
   isScanning: boolean;
   scanProgress: number;
   startLivenessScan: () => void;
@@ -61,6 +65,11 @@ export function useFaceLandmarker({
   const [luminanceStatus, setLuminanceStatus] = useState<'TOO_DARK' | 'OPTIMAL' | 'TOO_BRIGHT'>('OPTIMAL');
   const [is3DLiveCurrent, setIs3DLiveCurrent] = useState(false);
 
+  // Facial accessory state
+  const [hasAccessory, setHasAccessory] = useState(false);
+  const [accessoryDetails, setAccessoryDetails] = useState<string[]>([]);
+  const [accessoryReason, setAccessoryReason] = useState<string | null>(null);
+
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [latestLandmarks, setLatestLandmarks] = useState<LandmarkPoint[]>([]);
@@ -68,6 +77,7 @@ export function useFaceLandmarker({
   const landmarkerRef = useRef<FaceLandmarker | null>(null);
   const animationFrameIdRef = useRef<number | null>(null);
   const sampleBufferRef = useRef<DepthAnalysisResult[]>([]);
+  const accessoryBufferRef = useRef<FacialAccessoryCheckResult[]>([]);
   const scanStartTimeRef = useRef<number | null>(null);
   const isScanningRef = useRef(false);
   const luminanceSamplesRef = useRef<number[]>([]);
@@ -159,11 +169,7 @@ export function useFaceLandmarker({
         if (ctx) {
           ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-          const lumaRes: LuminanceResult = calculateLuminanceFromCanvas(
-            ctx,
-            canvas.width,
-            canvas.height
-          );
+          const lumaRes: LuminanceResult = calculateLuminanceFromVideo(video);
           setCurrentLuminance(lumaRes.score);
           setLuminanceStatus(lumaRes.status);
           luminanceSamplesRef.current.push(lumaRes.score);
@@ -195,8 +201,15 @@ export function useFaceLandmarker({
         setCurrentVariance(depthAnalysis.variance);
         setIs3DLiveCurrent(depthAnalysis.is3DLive);
 
+        // Check facial accessories (glasses, sunglasses, mask, coverings)
+        const accessoryResult = checkFacialAccessories(landmarks, video);
+        setHasAccessory(accessoryResult.hasAccessory);
+        setAccessoryDetails(accessoryResult.accessoryDetails);
+        setAccessoryReason(accessoryResult.reason || null);
+
         if (isScanningRef.current) {
           sampleBufferRef.current.push(depthAnalysis);
+          accessoryBufferRef.current.push(accessoryResult);
 
           const elapsed = performance.now() - (scanStartTimeRef.current || performance.now());
           const progress = Math.min(100, Math.round((elapsed / SAMPLE_DURATION_MS) * 100));
@@ -213,15 +226,30 @@ export function useFaceLandmarker({
                   luminanceSamplesRef.current.length
                 : 60;
 
+            // Check if accessory was detected in >= 40% of scanned frames
+            const accessoryCount = accessoryBufferRef.current.filter((a) => a.hasAccessory).length;
+            const hasPersistentAccessory = accessoryCount / (accessoryBufferRef.current.length || 1) >= 0.4;
+            const mostFrequentReason = accessoryBufferRef.current.find((a) => a.reason)?.reason;
+
+            let finalPassed = aggregated.passed;
+            let finalFailureReason = aggregated.primaryFailureReason;
+
+            if (hasPersistentAccessory) {
+              finalPassed = false;
+              finalFailureReason =
+                mostFrequentReason ||
+                'Verifikasi ditolak: Terdeteksi atribut pada wajah (kacamata/masker). Wajah harus bebas dari atribut.';
+            }
+
             if (onLivenessComplete) {
               onLivenessComplete({
-                passed: aggregated.passed,
+                passed: finalPassed,
                 metrics: {
                   depthVariance: aggregated.medianVariance,
                   luminanceScore: Math.round(avgLuminance * 10) / 10,
                   confidenceScore: aggregated.averageConfidence,
                   sampleCount: sampleBufferRef.current.length,
-                  failureReason: aggregated.primaryFailureReason,
+                  failureReason: finalFailureReason,
                 },
                 latestLandmarks: landmarks,
               });
@@ -231,6 +259,9 @@ export function useFaceLandmarker({
       } else {
         setFaceDetected(false);
         setIs3DLiveCurrent(false);
+        setHasAccessory(false);
+        setAccessoryDetails([]);
+        setAccessoryReason(null);
       }
     } catch (err) {
       console.warn('MediaPipe detection frame error:', err);
@@ -254,6 +285,7 @@ export function useFaceLandmarker({
 
   const startLivenessScan = useCallback(() => {
     sampleBufferRef.current = [];
+    accessoryBufferRef.current = [];
     luminanceSamplesRef.current = [];
     scanStartTimeRef.current = performance.now();
     isScanningRef.current = true;
@@ -266,7 +298,11 @@ export function useFaceLandmarker({
     setIsScanning(false);
     setScanProgress(0);
     sampleBufferRef.current = [];
+    accessoryBufferRef.current = [];
     luminanceSamplesRef.current = [];
+    setHasAccessory(false);
+    setAccessoryDetails([]);
+    setAccessoryReason(null);
   }, []);
 
   return {
@@ -277,6 +313,9 @@ export function useFaceLandmarker({
     currentLuminance,
     luminanceStatus,
     is3DLiveCurrent,
+    hasAccessory,
+    accessoryDetails,
+    accessoryReason,
     isScanning,
     scanProgress,
     startLivenessScan,
