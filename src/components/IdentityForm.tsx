@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, Mail, Briefcase, Sparkles } from 'lucide-react';
+import { User, Mail, Briefcase, Sparkles, CheckCircle2 } from 'lucide-react';
 import { ApplicantIdentity } from '@/types';
 
 interface IdentityFormProps {
@@ -13,25 +13,41 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
   onChange,
   disabled = false,
 }) => {
+  const isComplete = Boolean(
+    identity.fullName.trim() && identity.email.trim() && identity.jobPosition.trim()
+  );
+
   return (
-    <div className="w-full glass-panel p-6 rounded-3xl border border-white/[0.08] shadow-2xl">
-      <div className="flex items-center gap-3 mb-5">
-        <div className="w-9 h-9 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
-          <Sparkles className="w-5 h-5" />
+    <div className="w-full glass-panel p-6 sm:p-7 rounded-3xl border border-white/[0.08] shadow-2xl relative overflow-hidden transition-all duration-300 hover:border-rose-500/25">
+      {/* Subtle background glow */}
+      <div className="absolute top-0 right-0 w-64 h-64 bg-rose-600/10 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="flex items-center justify-between gap-4 mb-5 relative z-10">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-rose-500/20 to-maroon-900/40 border border-rose-500/30 flex items-center justify-center text-rose-300 shadow-md shadow-rose-950/40">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+              <span>Data Identitas Pelamar</span>
+              {isComplete && (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 animate-fade-in" />
+              )}
+            </h3>
+            <p className="text-xs text-rose-200/60">
+              Kredensial wajib untuk validasi sesi wawancara online
+            </p>
+          </div>
         </div>
-        <div>
-          <h3 className="text-base font-semibold text-white tracking-tight">
-            Data Identitas Pelamar
-          </h3>
-          <p className="text-xs text-rose-200/60">
-            Kredensial wajib untuk validasi sesi wawancara online
-          </p>
-        </div>
+
+        <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-300 border border-rose-500/20 hidden sm:inline-block">
+          Langkah 1 dari 2
+        </span>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 relative z-10">
         <div>
-          <label className="block text-xs font-medium text-rose-200/80 mb-1.5">
+          <label className="block text-xs font-semibold text-rose-200/90 mb-1.5">
             Nama Lengkap <span className="text-rose-400">*</span>
           </label>
           <div className="relative">
@@ -51,7 +67,7 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-rose-200/80 mb-1.5">
+          <label className="block text-xs font-semibold text-rose-200/90 mb-1.5">
             Email Pelamar <span className="text-rose-400">*</span>
           </label>
           <div className="relative">
@@ -71,7 +87,7 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-rose-200/80 mb-1.5">
+          <label className="block text-xs font-semibold text-rose-200/90 mb-1.5">
             Posisi / Kode Undangan <span className="text-rose-400">*</span>
           </label>
           <div className="relative">

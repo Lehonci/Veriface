@@ -17,45 +17,48 @@
 }
 
 .glass-panel {
-  background: rgba(26, 7, 14, 0.65);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(22, 8, 12, 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.55);
 }
 
 .glass-panel-subtle {
   background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .glass-panel-active {
-  background: rgba(43, 10, 21, 0.75);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(225, 29, 72, 0.35);
-  box-shadow: 0 0 25px rgba(225, 29, 72, 0.2);
+  background: rgba(45, 10, 22, 0.85);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(225, 29, 72, 0.45);
+  box-shadow: 0 0 30px rgba(225, 29, 72, 0.25);
 }
 
 .glass-input {
-  background: rgba(13, 4, 7, 0.7);
+  background: rgba(14, 5, 8, 0.75);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #F8FAFC;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .glass-input:focus {
   outline: none;
-  border-color: rgba(225, 29, 72, 0.6);
-  box-shadow: 0 0 15px rgba(225, 29, 72, 0.25);
+  border-color: rgba(225, 29, 72, 0.65);
+  box-shadow: 0 0 18px rgba(225, 29, 72, 0.3);
+  background: rgba(20, 6, 11, 0.9);
 }
 
 .bg-ambient-maroon {
+  background-color: #0A0507;
   background-image: 
-    radial-gradient(circle at 50% 0%, rgba(225, 29, 72, 0.15) 0%, transparent 50%),
-    radial-gradient(circle at 100% 50%, rgba(112, 18, 53, 0.12) 0%, transparent 40%),
-    radial-gradient(circle at 0% 100%, rgba(77, 14, 37, 0.15) 0%, transparent 50%);
+    radial-gradient(circle at 50% -10%, rgba(225, 29, 72, 0.22) 0%, transparent 60%),
+    radial-gradient(circle at 100% 50%, rgba(159, 18, 57, 0.16) 0%, transparent 45%),
+    radial-gradient(circle at 0% 100%, rgba(120, 15, 45, 0.18) 0%, transparent 55%);
+  background-attachment: fixed;
 }
 
 ::-webkit-scrollbar {
@@ -64,7 +67,7 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #0D0407;
+  background: #0A0507;
 }
 
 ::-webkit-scrollbar-thumb {
