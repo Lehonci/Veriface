@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <defs>
+    <linearGradient id="maroonGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E11D48"/>
+      <stop offset="50%" stop-color="#BE123C"/>
+      <stop offset="100%" stop-color="#4D0E25"/>
+    </linearGradient>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDA4AF"/>
+      <stop offset="100%" stop-color="#E11D48"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Ambient Glow -->
+  <circle cx="60" cy="60" r="45" fill="#E11D48" opacity="0.25" filter="url(#glow)"/>
+
+  <!-- Outer Rounded Diamond / Shield Base -->
+  <rect x="20" y="20" width="80" height="80" rx="24" fill="url(#maroonGrad)" stroke="#FDA4AF" stroke-width="1.5" stroke-opacity="0.35"/>
+
+  <!-- Biometric Scan Ring -->
+  <circle cx="60" cy="60" r="28" stroke="#FCE7EB" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.6"/>
+  <circle cx="60" cy="60" r="20" stroke="#E11D48" stroke-width="2" opacity="0.8"/>
+
+  <!-- Center Biometric Node / Face Mesh Grid -->
+  <path d="M60 44 L60 76 M46 60 L74 60" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="60" cy="44" r="3" fill="#FFFFFF"/>
+  <circle cx="60" cy="76" r="3" fill="#FFFFFF"/>
+  <circle cx="46" cy="60" r="3" fill="#FFFFFF"/>
+  <circle cx="74" cy="60" r="3" fill="#FFFFFF"/>
+  <circle cx="60" cy="60" r="4.5" fill="#FDA4AF"/>
+</svg>
+
