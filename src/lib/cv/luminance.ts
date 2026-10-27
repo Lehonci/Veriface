@@ -7,8 +7,6 @@ export interface LuminanceResult {
 export const MIN_LUMINANCE_THRESHOLD = 38.0;
 export const MAX_LUMINANCE_THRESHOLD = 235.0;
 
-<<<<<<< HEAD
-=======
 export function calculateLuminanceFromVideo(
   video: HTMLVideoElement,
   offscreenCanvas?: HTMLCanvasElement
@@ -66,7 +64,6 @@ export function calculateLuminanceFromVideo(
   }
 }
 
->>>>>>> 37f3a66c78bd02f26926fc26dd7c5cf26d268274
 export function calculateLuminanceFromCanvas(
   ctx: CanvasRenderingContext2D,
   width: number,

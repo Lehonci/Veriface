@@ -178,7 +178,7 @@ export default function GatewayPage() {
       return;
     }
     if (!isPositionValid) {
-      alert('Harap isi Posisi / kode undangan.');
+      alert('Harap isi Posisi yang Dilamar');
       return;
     }
 
@@ -232,7 +232,7 @@ export default function GatewayPage() {
       return;
     }
     if (!isPositionValid) {
-      alert('Harap isi Posisi / kode undangan.');
+      alert('Harap isi Posisi yang Dilamar.');
       return;
     }
 
@@ -300,28 +300,7 @@ export default function GatewayPage() {
 
           {/* Main Desktop App Window (Figma 2-Column macOS Style Frame) */}
           <div className="w-full max-w-5xl glass-panel rounded-[28px] border border-white/10 shadow-2xl p-6 sm:p-8 relative overflow-hidden">
-            {/* macOS Window Title Bar */}
-            <div className="flex items-center justify-between pb-5 mb-7 border-b border-white/[0.08]">
-              {/* 3 Window Control Dots */}
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-[#FF5F56] border border-black/20 inline-block"></span>
-                <span className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-black/20 inline-block"></span>
-                <span className="w-3 h-3 rounded-full bg-[#27C93F] border border-black/20 inline-block"></span>
-              </div>
-
-              {/* Title in center matching Figma */}
-              <div className="flex items-center gap-1.5 text-xs font-normal text-white/60">
-                <span>VeriGate &middot; Identity Session</span>
-              </div>
-
-              {/* Status indicator on right matching Figma */}
-              <div className="flex items-center gap-1.5 text-xs text-white/70">
-                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                <span className="text-[11px]">Koneksi aman</span>
-              </div>
-            </div>
-
-            {/* 2-Column Split Grid */}
+  
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-stretch">
               {/* Left Column: Form & Stepper (5 Cols) */}
               <div className="lg:col-span-5 flex flex-col justify-between">
@@ -378,9 +357,9 @@ export default function GatewayPage() {
         </main>
 
         {/* Footer */}
-        <footer className="w-full py-6 text-center text-xs text-rose-200/40 border-t border-white/[0.06] mt-auto">
+        <footer className="w-full py-6 text-center text-xs text-[#dbccd1] border-t border-white/[0.06] mt-auto">
           <p>
-            &copy; {new Date().getFullYear()} Pre-Screening Identity Gateway &middot; TRPL Computer Vision Research
+            Copyright &copy; {new Date().getFullYear()}, Key Pick Key Run, All Rights Reserved
           </p>
         </footer>
       </div>

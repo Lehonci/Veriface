@@ -16,7 +16,7 @@ export const Navbar: React.FC<NavbarProps> = ({ showAdminLink = true }) => {
             <ScanFace className="w-4 h-4" />
           </div>
           <span className="font-semibold text-base sm:text-lg tracking-tight text-white">
-            VeriGate
+            Veriface
           </span>
         </Link>
 

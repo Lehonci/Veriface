@@ -9,6 +9,7 @@ interface IdentityFormProps {
   onProceed?: () => void;
   isStreaming?: boolean;
   canProceed?: boolean;
+  isEmailValid?: boolean;
 }
 
 export const IdentityForm: React.FC<IdentityFormProps> = ({
@@ -18,7 +19,10 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
   onProceed,
   isStreaming = false,
   canProceed = false,
+  isEmailValid = identity.email?.toLowerCase().endsWith('@gmail.com')
 }) => {
+
+
   return (
     <div className="flex flex-col h-full justify-between">
       <div>
@@ -43,7 +47,7 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
             >
               2
             </span>
-            <span className="text-[11px] font-medium text-white/40">Liveness</span>
+            <span className="text-[11px] font-medium text-white/40">Verifikasi</span>
           </div>
 
           <div className="flex-1 h-[1px] bg-white/10 -mt-4" />
@@ -59,11 +63,8 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
         {/* Section Heading matching Figma */}
         <div className="mb-6">
           <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-            Detail undangan
+            Data Diri Pelamar
           </h2>
-          <p className="text-xs text-rose-200/60 mt-1">
-            Masukkan data sesuai undangan dari HR.
-          </p>
         </div>
 
         {/* Form Inputs matching Figma exactly */}
@@ -78,7 +79,7 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
               disabled={disabled}
               value={identity.fullName}
               onChange={(e) => onChange({ fullName: e.target.value })}
-              placeholder="Masukkan nama lengkap"
+              placeholder="Kyryll Chudomirovich Flins"
               className="glass-input w-full px-4 py-3 rounded-2xl text-xs sm:text-sm placeholder:text-white/40 disabled:opacity-50"
             />
           </div>
@@ -88,21 +89,22 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
               <label className="block text-xs font-medium text-rose-200/80">
                 Email
               </label>
-              {identity.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identity.email) && (
+              {identity.email && !identity.email.toLowerCase().endsWith('@gmail.com') && (
                 <span className="text-[10px] text-rose-300 font-medium">
-                  Harus format email (@...)
+                  Harus format email (@gmail.com)
                 </span>
               )}
             </div>
             <input
               type="email"
               required
+              pattern="^[^\s@]+@gmail\.com$"
               disabled={disabled}
               value={identity.email}
               onChange={(e) => onChange({ email: e.target.value })}
-              placeholder="Masukkan email"
+              placeholder="chudomirovich@gmail.com"
               className={`glass-input w-full px-4 py-3 rounded-2xl text-xs sm:text-sm placeholder:text-white/40 disabled:opacity-50 ${
-                identity.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identity.email)
+                identity.email && !identity.email.toLowerCase().endsWith('@gmail.com')
                   ? 'border-rose-400/80 focus:border-rose-400'
                   : ''
               }`}
@@ -111,7 +113,7 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
 
           <div>
             <label className="block text-xs font-medium text-rose-200/80 mb-2">
-              Posisi / kode undangan
+              Posisi yang Dilamar
             </label>
             <input
               type="text"
@@ -119,20 +121,20 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
               disabled={disabled}
               value={identity.jobPosition}
               onChange={(e) => onChange({ jobPosition: e.target.value })}
-              placeholder="Masukkan posisi / kode undangan"
+              placeholder="Software Engineer"
               className="glass-input w-full px-4 py-3 rounded-2xl text-xs sm:text-sm placeholder:text-white/40 disabled:opacity-50"
             />
           </div>
         </div>
       </div>
-
+      
       {/* Action Button & Note matching Figma */}
       <div className="mt-8 space-y-3">
         {onProceed && (
           <button
             type="button"
             onClick={onProceed}
-            disabled={!canProceed || disabled}
+            disabled={!canProceed || disabled || !isEmailValid}
             className="w-full py-3.5 px-6 rounded-full font-semibold text-xs sm:text-sm text-rose-950 bg-white hover:bg-rose-50 transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed active:scale-98"
           >
             <span>{isStreaming ? 'Mulai Pemindaian Liveness' : 'Lanjut ke pemindaian'}</span>
@@ -140,10 +142,10 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
           </button>
         )}
 
-        <div className="flex items-center justify-center gap-1.5 text-[11px] text-center text-rose-200/50 pt-1">
+        {/* <div className="flex items-center justify-center gap-1.5 text-[11px] text-center text-rose-200/50 pt-1">
           <ShieldCheck className="w-3.5 h-3.5 text-rose-300/60" />
           <span>Biometrik diproses lokal dan tidak disimpan sebagai video.</span>
-        </div>
+        </div> */}
       </div>
     </div>
   );

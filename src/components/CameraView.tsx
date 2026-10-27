@@ -60,9 +60,9 @@ export const CameraView: React.FC<CameraViewProps> = ({
           <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
             Pratinjau verifikasi
           </h3>
-          <p className="text-xs text-rose-200/60 mt-1">
+          {/* <p className="text-xs text-rose-200/60 mt-1">
             Kamera aktif setelah data dikonfirmasi
-          </p>
+          </p> */}
         </div>
 
         {/* Status Pill in top right matching Figma */}
@@ -82,7 +82,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
               <span>Mencari wajah</span>
             )
           ) : (
-            <span>Menunggu</span>
+            <span>Kamera belum aktif</span>
           )}
         </div>
       </div>
@@ -199,7 +199,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
               Kamera belum dimulai
             </h4>
             <p className="text-xs text-rose-200/50 mt-1 max-w-xs">
-              Lengkapi detail undangan untuk melanjutkan
+              Lengkapi data diri untuk melanjutkan
             </p>
 
             {onStartCamera && (
