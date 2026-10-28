@@ -76,23 +76,70 @@ export function checkFacialAccessories(
   let hasMask = false;
 
   // 1. Check Mask / Mouth Cover:
-  // Landmarks: 13 (upper inner lip), 14 (lower inner lip), 61, 291 (mouth corners), 164 (under nose), 152 (chin)
-  // When a mask is worn, mouth landmarks either collapse or deform significantly in depth z relative to nose
-  const noseTip = landmarks[1];
-  const upperLip = landmarks[13];
-  const lowerLip = landmarks[14];
+  // In a normal face, the mouth has distinct lip contours and pigmentation.
+  // When a real mask (surgical, cloth, N95) is worn, the mouth is physically occluded by opaque fabric
+  // which lacks lip pigmentation and normal lip-seam contrast.
+  const outerUpperLip = landmarks[0];
+  const outerLowerLip = landmarks[17];
+  const mouthCornerLeft = landmarks[61];
+  const mouthCornerRight = landmarks[291];
   const chin = landmarks[152];
+  const noseTip = landmarks[1];
 
-  if (noseTip && upperLip && lowerLip && chin) {
-    const mouthHeight = Math.abs(lowerLip.y - upperLip.y);
-    const noseToChin = Math.abs(chin.y - noseTip.y);
-    const mouthRatio = mouthHeight / (noseToChin || 1);
+  if (videoElement && videoElement.videoWidth > 0 && outerUpperLip && outerLowerLip && mouthCornerLeft && mouthCornerRight && chin && noseTip) {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 40;
+      canvas.height = 30;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        const vw = videoElement.videoWidth;
+        const vh = videoElement.videoHeight;
 
-    // If mouth landmarks are hidden/collapsed or depth is abnormal
-    const chinToLipZ = Math.abs(chin.z - upperLip.z);
-    if (mouthRatio < 0.005 || chinToLipZ < 0.005) {
-      hasMask = true;
-      details.push('Masker / Penutup Mulut');
+        // Crop the mouth rectangle
+        const mx = Math.min(mouthCornerLeft.x, mouthCornerRight.x) * vw;
+        const mw = Math.max(10, Math.abs(mouthCornerRight.x - mouthCornerLeft.x) * vw);
+        const my = (noseTip.y + (outerUpperLip.y - noseTip.y) * 0.5) * vh;
+        const mh = Math.max(10, (chin.y - outerUpperLip.y) * 0.7 * vh);
+
+        ctx.drawImage(videoElement, mx, my, mw, mh, 0, 0, 40, 30);
+        const imgData = ctx.getImageData(0, 0, 40, 30).data;
+
+        let lipCreaseEdges = 0;
+        let lipHueCount = 0;
+        let total = 0;
+
+        for (let y = 6; y < 24; y++) {
+          for (let x = 6; x < 34; x++) {
+            const idx = (y * 40 + x) * 4;
+            const r = imgData[idx];
+            const g = imgData[idx + 1];
+            const b = imgData[idx + 2];
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+
+            // Check horizontal crease where lips meet
+            const belowIdx = ((y + 2) * 40 + x) * 4;
+            const belowLum = 0.299 * imgData[belowIdx] + 0.587 * imgData[belowIdx + 1] + 0.114 * imgData[belowIdx + 2];
+            if (Math.abs(lum - belowLum) > 22) {
+              lipCreaseEdges++;
+            }
+
+            // Natural lip vermilion pigment
+            if (r > g + 12 && r > b + 12) {
+              lipHueCount++;
+            }
+            total++;
+          }
+        }
+
+        // Only trigger if both lip pigment and crease are completely absent (covered by fabric/mask)
+        if (total > 50 && lipCreaseEdges < 4 && lipHueCount < 3) {
+          hasMask = true;
+          details.push('Masker / Penutup Mulut');
+        }
+      }
+    } catch {
+      // Fallback
     }
   }
 
