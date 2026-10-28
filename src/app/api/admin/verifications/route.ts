@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
   } catch (error: unknown) {
     console.error('Error fetching verifications:', error);
     return NextResponse.json(
-      { success: false, message: 'Gagal memuat riwayat verifikasi.' },
+      { success: false, message: 'Gagal memuat riwayat verifikasi.', error: typeof error === 'object' ? JSON.stringify(error) : String(error) },
       { status: 500 }
     );
   }
