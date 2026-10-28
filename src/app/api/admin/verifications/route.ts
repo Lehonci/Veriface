@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer, mockDB, isSupabaseServerConfigured } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
   try {
@@ -28,7 +29,10 @@ export async function GET(req: NextRequest) {
       const { data, error } = await query;
       if (error) throw error;
 
-      return NextResponse.json({ success: true, verifications: data });
+      return NextResponse.json(
+        { success: true, verifications: data },
+        { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+      );
     }
 
     let list = [...mockDB.verifications];

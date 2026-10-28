@@ -226,9 +226,9 @@ export function useFaceLandmarker({
                   luminanceSamplesRef.current.length
                 : 60;
 
-            // Check if accessory was detected in >= 40% of scanned frames
+            // Check if accessory was detected in >= 25% of scanned frames
             const accessoryCount = accessoryBufferRef.current.filter((a) => a.hasAccessory).length;
-            const hasPersistentAccessory = accessoryCount / (accessoryBufferRef.current.length || 1) >= 0.4;
+            const hasPersistentAccessory = accessoryCount / (accessoryBufferRef.current.length || 1) >= 0.25;
             const mostFrequentReason = accessoryBufferRef.current.find((a) => a.reason)?.reason;
 
             let finalPassed = aggregated.passed;

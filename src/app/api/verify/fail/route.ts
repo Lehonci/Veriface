@@ -74,7 +74,8 @@ export async function POST(req: NextRequest) {
     };
 
     if (isSupabaseServerConfigured && supabaseServer) {
-      await supabaseServer.from('verifications').insert([newRecord]);
+      const { error: insertError } = await supabaseServer.from('verifications').insert([newRecord]);
+      if (insertError) console.error('Supabase insert verification (FAILED) failed:', insertError);
     } else {
       mockDB.verifications.unshift(newRecord);
     }
