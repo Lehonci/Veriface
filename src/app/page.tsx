@@ -79,6 +79,16 @@ export default function GatewayPage() {
     setIsVerifying(true);
 
     try {
+      let snapshotBase64: string | null = null;
+      if (videoRef.current) {
+        try {
+          const cropResult = await captureAndCropFaceSnapshot(videoRef.current);
+          snapshotBase64 = cropResult.dataUrl;
+        } catch (e) {
+          console.warn('Snapshot capture failed:', e);
+        }
+      }
+
       if (result.passed) {
         const res = await fetch('/api/verify/pass', {
           method: 'POST',
@@ -90,6 +100,7 @@ export default function GatewayPage() {
             depthVariance: result.metrics.depthVariance,
             luminanceScore: result.metrics.luminanceScore,
             confidenceScore: result.metrics.confidenceScore,
+            snapshotBase64,
           }),
         });
 
