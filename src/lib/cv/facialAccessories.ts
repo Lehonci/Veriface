@@ -10,6 +10,50 @@ export interface FacialAccessoryCheckResult {
 }
 
 /**
+ * Ratio of pixels with a strong vertical luminance gradient inside a normalized
+ * video region. Skin below the eyes is smooth, while a glasses lower rim
+ * creates a clear horizontal edge.
+ */
+function lowerRimEdgeRatio(
+  video: HTMLVideoElement,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number
+): number {
+  const w = 48;
+  const h = 24;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return 0;
+
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  const sx = Math.min(x0, x1) * vw;
+  const sw = Math.max(8, Math.abs(x1 - x0) * vw);
+  const sy = Math.min(y0, y1) * vh;
+  const sh = Math.max(8, Math.abs(y1 - y0) * vh);
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data;
+
+  let edges = 0;
+  let total = 0;
+  for (let y = 0; y < h - 2; y++) {
+    for (let x = 0; x < w; x++) {
+      const a = (y * w + x) * 4;
+      const b = ((y + 2) * w + x) * 4;
+      const la = 0.299 * d[a] + 0.587 * d[a + 1] + 0.114 * d[a + 2];
+      const lb = 0.299 * d[b] + 0.587 * d[b + 1] + 0.114 * d[b + 2];
+      if (Math.abs(la - lb) > 28) edges++;
+      total++;
+    }
+  }
+  return total > 0 ? edges / total : 0;
+}
+
+/**
  * Checks for facial accessories (glasses, sunglasses, face mask, thick covering)
  * using MediaPipe 468/478 face landmarks and eye-region pixel analysis.
  */
@@ -110,9 +154,29 @@ export function checkFacialAccessories(
         }
 
         // Eyeglasses detection based on high edge density across the nasal bridge / eye rim
-        if (edgeCount > 130 || darkPixelCount > 350) {
+        if (edgeCount > 90 || darkPixelCount > 250) {
           hasGlasses = true;
           details.push('Kacamata');
+        }
+      }
+
+      // Lower rim check: frame edge just below each eye (both eyes must show it)
+      if (!hasGlasses) {
+        const lOuter = landmarks[33];
+        const lLower = landmarks[145];
+        const rOuter = landmarks[263];
+        const rLower = landmarks[374];
+        if (lOuter && lLower && rOuter && rLower) {
+          const leftRatio = lowerRimEdgeRatio(
+            videoElement, lOuter.x, leftInnerEye.x, lLower.y + 0.008, lLower.y + 0.05
+          );
+          const rightRatio = lowerRimEdgeRatio(
+            videoElement, rightInnerEye.x, rOuter.x, rLower.y + 0.008, rLower.y + 0.05
+          );
+          if (leftRatio > 0.12 && rightRatio > 0.12) {
+            hasGlasses = true;
+            details.push('Kacamata');
+          }
         }
       }
     } catch {

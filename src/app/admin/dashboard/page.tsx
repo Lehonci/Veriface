@@ -102,24 +102,22 @@ export default function AdminDashboardPage() {
   const fetchVerifications = useCallback(async () => {
     setIsLoading(true);
     try {
-      let url = '/api/admin/verifications?status=ALL';
+      let url = `/api/admin/verifications?status=ALL&_t=${Date.now()}`;
       if (searchQuery) {
         url += `&search=${encodeURIComponent(searchQuery)}`;
       }
-      const res = await fetch(url);
+      const res = await fetch(url, { cache: 'no-store' });
       const data = await res.json();
       if (data.success && data.verifications) {
         setVerifications(data.verifications);
-        if (!selectedRecord && data.verifications.length > 0) {
-          setSelectedRecord(data.verifications[0]);
-        }
+        setSelectedRecord((prev) => prev || (data.verifications.length > 0 ? data.verifications[0] : null));
       }
     } catch (err) {
       console.error('Error fetching verifications:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [searchQuery, selectedRecord]);
+  }, [searchQuery]);
 
   const fetchSettings = async () => {
     try {

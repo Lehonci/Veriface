@@ -2,7 +2,11 @@ import { createClient } from '@supabase/supabase-js';
 import { VerificationRecord, ZoomSetting } from '@/types';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const rawServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const hasRealServiceKey = Boolean(rawServiceKey) && !rawServiceKey.includes('your-service-role-key');
+const supabaseServiceKey = hasRealServiceKey
+  ? rawServiceKey
+  : process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 export const isSupabaseServerConfigured = Boolean(
   supabaseUrl && 
@@ -15,6 +19,9 @@ export const supabaseServer = isSupabaseServerConfigured
       auth: {
         persistSession: false,
         autoRefreshToken: false,
+      },
+      global: {
+        fetch: (url, options) => fetch(url, { ...options, cache: 'no-store' }),
       },
     })
   : null;
