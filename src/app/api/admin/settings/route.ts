@@ -59,11 +59,21 @@ export async function POST(req: NextRequest) {
 
       const { data, error } = await supabaseServer
         .from('zoom_settings')
-        .insert([newSetting])
+        .insert([
+          {
+            meeting_title: meetingTitle || 'Wawancara Kerja Online',
+            zoom_url: zoomUrl,
+            passcode: passcode || '',
+            is_active: Boolean(isActive),
+          },
+        ])
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase zoom_settings insert error:', error);
+        throw error;
+      }
       return NextResponse.json({ success: true, setting: data });
     }
 

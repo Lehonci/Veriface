@@ -140,3 +140,4 @@ Jika ingin menyimpan riwayat audit dan snapshot secara permanen di cloud:
 
 Dikembangkan sebagai bagian dari riset tugas besar **Computer Vision (TRPL - Semester 5)**.  
 *Hak Cipta &copy; 2026 Pre-Screening Identity Gateway Research.*
+
