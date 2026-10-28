@@ -249,12 +249,12 @@ export default function GatewayPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-ambient-maroon text-foreground relative overflow-x-hidden selection:bg-rose-500/30 selection:text-rose-200">
+    <div className="min-h-screen flex flex-col bg-ambient-maroon text-foreground relative overflow-x-hidden selection:bg-[#7B2E46]/20 selection:text-[#7B2E46]">
       {/* Background Ambient Glowing Blobs for True Glassmorphism Refraction */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <div className="absolute top-[-10%] left-[20%] w-[55vw] h-[55vw] rounded-full bg-rose-600/25 blur-[150px] animate-pulse-glow" />
-        <div className="absolute top-[35%] right-[-10%] w-[45vw] h-[45vw] rounded-full bg-maroon-700/28 blur-[140px]" />
-        <div className="absolute bottom-[-10%] left-[5%] w-[50vw] h-[50vw] rounded-full bg-rose-950/40 blur-[160px]" />
+        <div className="absolute top-[-10%] left-[20%] w-[55vw] h-[55vw] rounded-full bg-[#EBD8C7]/50 blur-[150px] animate-pulse-glow" />
+        <div className="absolute top-[35%] right-[-10%] w-[45vw] h-[45vw] rounded-full bg-[#F5E2D3]/40 blur-[140px]" />
+        <div className="absolute bottom-[-10%] left-[5%] w-[50vw] h-[50vw] rounded-full bg-[#DFCEBD]/50 blur-[160px]" />
       </div>
 
       <div className="relative z-10 flex flex-col min-h-screen">
@@ -262,16 +262,16 @@ export default function GatewayPage() {
         <Navbar />
 
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 flex flex-col items-center gap-8 sm:gap-10">
-          {/* Centered Hero Section matching Figma */}
+          {/* Centered Hero Section with Inverted Deep Wine & Crimson Headings */}
           <div className="text-center max-w-3xl pt-2 sm:pt-4">
-            <h1 className="text-4xl sm:text-6xl font-extrabold text-white tracking-tight leading-[1.08]">
+            <h1 className="text-4xl sm:text-6xl font-extrabold text-[#2B0E17] tracking-tight leading-[1.08]">
               Verifikasi identitas.
               <br />
               Masuk dengan percaya
               <br />
               diri.
             </h1>
-            <p className="text-xs sm:text-sm text-white/80 mt-4 max-w-lg mx-auto leading-relaxed">
+            <p className="text-xs sm:text-sm text-[#6E4250] mt-4 max-w-lg mx-auto leading-relaxed font-medium">
               Satu langkah aman sebelum sesi interview Anda. Tanpa akun, tanpa instalasi,
               <br className="hidden sm:inline" /> selesai dalam hitungan detik.
             </p>
@@ -279,18 +279,18 @@ export default function GatewayPage() {
 
           {/* Virtual Camera Warning Alert */}
           {virtualCamBlocked && (
-            <div className="w-full max-w-5xl glass-panel p-5 rounded-2xl border border-rose-600/80 bg-rose-950/90 shadow-xl animate-fade-in">
+            <div className="w-full max-w-5xl glass-panel p-5 rounded-2xl border border-rose-400 bg-rose-50/90 shadow-xl animate-fade-in">
               <div className="flex items-start gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-rose-500/30 border border-rose-500/60 flex items-center justify-center text-rose-300 shrink-0">
+                <div className="w-10 h-10 rounded-xl bg-rose-100 border border-rose-300 flex items-center justify-center text-rose-700 shrink-0">
                   <AlertTriangle className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">
+                  <h3 className="text-sm font-bold text-rose-950">
                     Akses Diblokir: Terdeteksi Kamera Virtual!
                   </h3>
-                  <p className="text-xs text-rose-200/90 mt-0.5">
+                  <p className="text-xs text-rose-900/90 mt-0.5">
                     Sistem mendeteksi penggunaan driver kamera virtual (
-                    <strong className="text-white font-mono">{virtualCamName}</strong>). Harap gunakan
+                    <strong className="text-rose-950 font-mono">{virtualCamName}</strong>). Harap gunakan
                     kamera webcam fisik asli perangkat Anda untuk melanjutkan.
                   </p>
                 </div>
@@ -298,8 +298,8 @@ export default function GatewayPage() {
             </div>
           )}
 
-          {/* Main Desktop App Window (Figma 2-Column macOS Style Frame) */}
-          <div className="w-full max-w-5xl glass-panel rounded-[28px] border border-white/10 shadow-2xl p-6 sm:p-8 relative overflow-hidden">
+          {/* Main Desktop App Window (Frosted Cream macOS Style Frame) */}
+          <div className="w-full max-w-5xl glass-panel rounded-[28px] border border-[#7B2E46]/12 shadow-2xl p-6 sm:p-8 relative overflow-hidden">
   
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-stretch">
               {/* Left Column: Form & Stepper (5 Cols) */}
@@ -357,7 +357,7 @@ export default function GatewayPage() {
         </main>
 
         {/* Footer */}
-        <footer className="w-full py-6 text-center text-xs text-[#dbccd1] border-t border-white/[0.06] mt-auto">
+        <footer className="w-full py-6 text-center text-xs text-[#7A4B58] border-t border-[#7B2E46]/10 mt-auto">
           <p>
             Copyright &copy; {new Date().getFullYear()}, Key Pick Key Run, All Rights Reserved
           </p>

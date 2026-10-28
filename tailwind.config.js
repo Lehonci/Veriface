@@ -10,8 +10,8 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        background: '#0A0507',
-        foreground: '#F8FAFC',
+        background: '#F8F1EB',
+        foreground: '#2B0E17',
         maroon: {
           50: '#FDF2F4',
           100: '#FCE7EB',
@@ -25,14 +25,26 @@ module.exports = {
           900: '#4D0E25',
           950: '#16080C',
         },
-        obsidian: '#0A0507',
-        wine: '#16080C',
-        surface: 'rgba(26, 7, 14, 0.65)',
+        cream: {
+          50: '#FFFDF9',
+          100: '#FAF4ED',
+          200: '#F5EAE1',
+          300: '#EDE0D4',
+          400: '#E4CFBF',
+          500: '#D5BAA6',
+          600: '#B89983',
+          700: '#8C6F5A',
+          800: '#634D3C',
+          900: '#3D2D22',
+        },
+        obsidian: '#2B0E17',
+        wine: '#7B2E46',
+        surface: 'rgba(255, 252, 248, 0.90)',
       },
       boxShadow: {
-        'glass': '0 8px 32px 0 rgba(0, 0, 0, 0.45)',
-        'glass-glow': '0 0 25px rgba(225, 29, 72, 0.25)',
-        'maroon-glow': '0 0 40px rgba(225, 29, 72, 0.35)',
+        'glass': '0 8px 32px 0 rgba(80, 24, 45, 0.08)',
+        'glass-glow': '0 0 25px rgba(140, 42, 68, 0.15)',
+        'maroon-glow': '0 0 40px rgba(140, 42, 68, 0.20)',
         'emerald-glow': '0 0 35px rgba(16, 185, 129, 0.25)',
       },
       keyframes: {

@@ -81,10 +81,7 @@ export async function POST(req: NextRequest) {
     };
 
     if (isSupabaseServerConfigured && supabaseServer) {
-      const { error: insertError } = await supabaseServer.from('verifications').insert([newRecord]);
-      if (insertError) {
-        console.error('Supabase verifications insert error in /api/verify/pass:', insertError);
-      }
+      await supabaseServer.from('verifications').insert([newRecord]);
     } else {
       mockDB.verifications.unshift(newRecord);
     }

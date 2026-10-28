@@ -54,23 +54,24 @@ export const CameraView: React.FC<CameraViewProps> = ({
 }) => {
   return (
     <div className="flex flex-col h-full justify-between">
-      {/* Right Column Header matching Figma */}
+      {/* Right Column Header */}
       <div className="flex items-center justify-between gap-4 mb-4">
         <div>
-          <h3 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+          <h3 className="text-xl sm:text-2xl font-bold text-[#2B0E17] tracking-tight">
             Pratinjau verifikasi
           </h3>
-          {/* <p className="text-xs text-rose-200/60 mt-1">
-            Kamera aktif setelah data dikonfirmasi
-          </p> */}
         </div>
 
-        {/* Status Pill in top right matching Figma */}
+        {/* Status Pill in top right - Inverted to Maroon with Cream Text */}
         <div
-          className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium shadow-sm transition-colors ${
+          className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold shadow-sm transition-colors ${
             hasAccessory
-              ? 'bg-rose-950/80 text-rose-300 border border-rose-500/40'
-              : 'bg-[#FDEFD8] text-[#8C4A00]'
+              ? 'bg-[#991B1B] text-white'
+              : isStreaming
+              ? faceDetected
+                ? 'bg-[#15803D] text-white'
+                : 'bg-[#B45309] text-white'
+              : 'bg-[#7B2E46] text-[#FFFDF9]'
           }`}
         >
           {isStreaming ? (
@@ -87,8 +88,8 @@ export const CameraView: React.FC<CameraViewProps> = ({
         </div>
       </div>
 
-      {/* Main Large Viewport matching Figma exact #502333 dark wine rounded frame */}
-      <div className="relative w-full aspect-[4/3] sm:aspect-[16/11] rounded-[24px] overflow-hidden border border-white/10 flex items-center justify-center bg-[#502333]/90 shadow-2xl">
+      {/* Main Viewport Container */}
+      <div className="relative w-full aspect-[4/3] sm:aspect-[16/11] rounded-[24px] overflow-hidden border border-[#7B2E46]/15 flex items-center justify-center bg-[#F5EAE1] shadow-xl">
         <video
           ref={videoRef}
           playsInline
@@ -104,8 +105,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
           className="absolute inset-0 w-full h-full object-cover -scale-x-100 pointer-events-none z-10"
         />
 
-        {/* Ambient Subtle Vignette */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30 pointer-events-none z-15" />
+        {/* Ambient Vignette during Streaming */}
+        {isStreaming && (
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30 pointer-events-none z-15" />
+        )}
 
         {/* Center Face Alignment Guide Oval (When Streaming) */}
         {isStreaming && (
@@ -120,7 +123,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
                   ? is3DLiveCurrent
                     ? 'border-emerald-400/90 shadow-[0_0_25px_rgba(16,185,129,0.35)]'
                     : 'border-amber-400/80'
-                  : 'border-white/20'
+                  : 'border-white/40'
               } transition-all duration-300 relative flex items-center justify-center`}
             >
               <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-3.5 h-0.5 bg-rose-500/70" />
@@ -136,7 +139,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
         {/* Top HUD Metrics when streaming */}
         {isStreaming && (
           <div className="absolute top-4 inset-x-4 flex items-center justify-between pointer-events-none z-30">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-white/10 bg-black/50 backdrop-blur-md text-xs font-medium text-white/90">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-white/20 bg-black/60 backdrop-blur-md text-xs font-medium text-white/95">
               {isModelLoading ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-400" />
@@ -167,14 +170,14 @@ export const CameraView: React.FC<CameraViewProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 border border-white/10 backdrop-blur-md text-xs text-rose-200">
+              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 border border-white/20 backdrop-blur-md text-xs text-rose-200">
                 <Sun className="w-3.5 h-3.5 text-amber-300" />
                 <span className="font-mono text-[11px] font-semibold">{currentLuminance} Lux</span>
               </div>
 
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 border border-white/10 backdrop-blur-md text-xs text-rose-200">
+              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 border border-white/20 backdrop-blur-md text-xs text-rose-200">
                 <Layers className="w-3.5 h-3.5 text-rose-400" />
-                <span className="text-[10px] text-rose-300/70 font-mono">σ²:</span>
+                <span className="text-[10px] text-rose-300/80 font-mono">σ²:</span>
                 <span
                   className={`font-mono text-[11px] font-bold ${
                     currentVariance >= MIN_Z_VARIANCE_THRESHOLD ? 'text-emerald-400' : 'text-amber-400'
@@ -187,18 +190,18 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </div>
         )}
 
-        {/* When Camera is NOT streaming - Matches Figma Render Exactly */}
+        {/* When Camera is NOT streaming - Warm Cream Style with Deep Maroon Accents */}
         {!isStreaming && (
           <div className="flex flex-col items-center justify-center p-6 text-center z-20">
             {/* Soft Circular Glow Badge with ScanFace Icon */}
-            <div className="w-16 h-16 rounded-full bg-rose-500/15 border border-rose-400/20 flex items-center justify-center text-rose-300/80 mb-4 shadow-inner">
+            <div className="w-16 h-16 rounded-full bg-[#7B2E46]/10 border border-[#7B2E46]/20 flex items-center justify-center text-[#7B2E46] mb-4 shadow-sm">
               <ScanFace className="w-7 h-7" />
             </div>
 
-            <h4 className="text-base sm:text-lg font-bold text-white tracking-tight">
+            <h4 className="text-base sm:text-lg font-bold text-[#2B0E17] tracking-tight">
               Kamera belum dimulai
             </h4>
-            <p className="text-xs text-rose-200/50 mt-1 max-w-xs">
+            <p className="text-xs text-[#7A4B58] mt-1 max-w-xs font-medium">
               Lengkapi data diri untuk melanjutkan
             </p>
 
@@ -207,14 +210,14 @@ export const CameraView: React.FC<CameraViewProps> = ({
                 type="button"
                 onClick={onStartCamera}
                 disabled={isLoadingCamera || !canStartScan}
-                className="mt-4 px-5 py-2 rounded-full font-medium text-xs bg-white/10 hover:bg-white/15 text-white border border-white/15 transition-all shadow-sm active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="mt-4 px-5 py-2.5 rounded-full font-semibold text-xs bg-[#7B2E46] hover:bg-[#682238] text-white shadow-md shadow-[#7B2E46]/20 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {isLoadingCamera ? 'Membuka Kamera...' : 'Buka & Izinkan Kamera'}
               </button>
             )}
 
             {errorMessage && (
-              <p className="text-xs text-rose-400 mt-3 font-medium">{errorMessage}</p>
+              <p className="text-xs text-[#B91C1C] mt-3 font-semibold">{errorMessage}</p>
             )}
           </div>
         )}
@@ -232,11 +235,11 @@ export const CameraView: React.FC<CameraViewProps> = ({
 
       {/* Viewport Bottom Hint / Action */}
       {isStreaming && (
-        <div className="mt-4 flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
-          <div className="flex items-center gap-2.5 text-xs text-rose-200/80">
+        <div className="mt-4 flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-[#F5EAE1]/90 border border-[#7B2E46]/15">
+          <div className="flex items-center gap-2.5 text-xs text-[#4A1A28] font-medium">
             <div
               className={`w-2 h-2 rounded-full shrink-0 ${
-                hasAccessory ? 'bg-amber-400' : 'bg-rose-400 animate-pulse'
+                hasAccessory ? 'bg-amber-600' : 'bg-[#7B2E46] animate-pulse'
               }`}
             />
             <span>
@@ -255,7 +258,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
               type="button"
               onClick={onStartScan}
               disabled={isModelLoading || isScanning || !faceDetected || !canStartScan || hasAccessory}
-              className="px-5 py-2 rounded-xl font-bold text-xs bg-white hover:bg-rose-50 text-rose-950 shadow-md flex items-center gap-2 shrink-0 disabled:opacity-30 disabled:cursor-not-allowed active:scale-95"
+              className="px-5 py-2 rounded-xl font-bold text-xs bg-[#7B2E46] hover:bg-[#682238] text-white shadow-md shadow-[#7B2E46]/20 flex items-center gap-2 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
             >
               {isScanning ? (
                 <>
