@@ -18,8 +18,8 @@ import {
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('admin@verigate.id');
-  const [password, setPassword] = useState('••••••••••');
+  const [email, setEmail] = useState('admin@veriface.id');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +82,7 @@ export default function AdminLoginPage() {
             <ScanFace className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-[#2B0E17]">VeriGate</h2>
+            <h2 className="text-xl font-bold tracking-tight text-[#2B0E17]">Veriface</h2>
             <p className="text-[10px] tracking-widest uppercase font-semibold text-[#8C3A50]">Identity System</p>
           </div>
         </Link>
@@ -110,7 +110,7 @@ export default function AdminLoginPage() {
                 Masuk ke Portal Admin
               </h1>
               <p className="text-xs sm:text-sm text-[#7D5662] mt-0.5">
-                Gunakan kredensial host atau auditor VeriGate Anda.
+                Gunakan kredensial host atau auditor Veriface Anda.
               </p>
             </div>
           </div>
@@ -139,7 +139,7 @@ export default function AdminLoginPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@verigate.id"
+                  placeholder="admin@veriface.id"
                   className="w-full pl-11 pr-4 py-3.5 rounded-2xl border border-gray-200 bg-white text-xs sm:text-sm text-[#2B0E17] placeholder:text-gray-400 focus:outline-none focus:border-[#8A233E] focus:ring-1 focus:ring-[#8A233E] transition-all"
                 />
               </div>
@@ -169,7 +169,6 @@ export default function AdminLoginPage() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••"
                   className="w-full pl-11 pr-11 py-3.5 rounded-2xl border border-gray-200 bg-white text-xs sm:text-sm text-[#2B0E17] placeholder:text-gray-400 focus:outline-none focus:border-[#8A233E] focus:ring-1 focus:ring-[#8A233E] transition-all"
                 />
                 <button
@@ -213,8 +212,8 @@ export default function AdminLoginPage() {
       </main>
 
       {/* Footer copyright */}
-      <footer className="text-center text-xs text-gray-400">
-        &copy; {new Date().getFullYear()} VeriGate Identity System &middot; TRPL Computer Vision Research
+      <footer className="text-center text-xs text-[#721A31]">
+        Copyright &copy; {new Date().getFullYear()}, Key Pick Key Run, All Rights Reserved
       </footer>
 
       {/* Forgot Password Modal Dialog */}

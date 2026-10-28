@@ -4,8 +4,8 @@
 
 @layer base {
   :root {
-    --background: #0B0205;
-    --foreground: #F8FAFC;
+    --background: #F8F1EB;
+    --foreground: #2B0E17;
   }
 
   body {
@@ -17,69 +17,69 @@
   }
 }
 
-/* Figma VeriGate Exact Colors - Sampled Directly from Figma Canvas */
+/* Inverted Color Palette: Luxury Warm Cream Ambient Background */
 .bg-ambient-maroon {
-  background-color: #7B2E46;
+  background-color: #F8F1EB;
   background-image: 
-    radial-gradient(ellipse 95% 75% at 50% -10%, #983E58 0%, transparent 65%),
-    radial-gradient(ellipse 75% 65% at 92% 15%, #903D56 0%, transparent 60%),
-    radial-gradient(ellipse 70% 60% at 8% 25%, #882F4B 0%, transparent 55%),
-    radial-gradient(ellipse 100% 85% at 50% 100%, #461828 0%, #3B1220 100%);
+    radial-gradient(ellipse 95% 75% at 50% -10%, #FFFDF9 0%, transparent 65%),
+    radial-gradient(ellipse 75% 65% at 92% 15%, #F5EAE1 0%, transparent 60%),
+    radial-gradient(ellipse 70% 60% at 8% 25%, #EFE1D5 0%, transparent 55%),
+    radial-gradient(ellipse 100% 85% at 50% 100%, #E8D6C6 0%, #DFCBBA 100%);
   background-attachment: fixed;
 }
 
-/* Figma VeriGate Capsule Navbar Glass Pill */
+/* Capsule Navbar Glass Pill: Frosted Warm Cream */
 .navbar-glass {
-  background: rgba(168, 74, 103, 0.55);
+  background: rgba(255, 252, 248, 0.85);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  box-shadow: 0 12px 32px -4px rgba(60, 15, 30, 0.4);
+  border: 1px solid rgba(123, 46, 70, 0.14);
+  box-shadow: 0 12px 32px -4px rgba(80, 24, 45, 0.08);
 }
 
-/* Glassmorphism Panel: Figma VeriGate Dark Wine Container */
+/* Glassmorphism Panel: Frosted Cream Container with Subtle Wine Border */
 .glass-panel {
-  background: rgba(84, 33, 52, 0.88);
+  background: rgba(255, 252, 248, 0.90);
   backdrop-filter: blur(36px);
   -webkit-backdrop-filter: blur(36px);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(123, 46, 70, 0.12);
   box-shadow: 
-    0 24px 60px -10px rgba(45, 12, 25, 0.7),
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.2);
+    0 24px 60px -10px rgba(80, 24, 45, 0.09),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .glass-panel-subtle {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(123, 46, 70, 0.04);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(123, 46, 70, 0.09);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.7);
 }
 
 .glass-panel-active {
-  background: rgba(113, 38, 68, 0.92);
+  background: rgba(255, 246, 243, 0.96);
   backdrop-filter: blur(32px);
   -webkit-backdrop-filter: blur(32px);
-  border: 1px solid rgba(244, 63, 94, 0.6);
+  border: 1px solid rgba(140, 42, 68, 0.45);
   box-shadow: 
-    0 0 35px rgba(244, 63, 94, 0.35),
-    0 16px 40px rgba(0, 0, 0, 0.5),
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.25);
+    0 0 35px rgba(140, 42, 68, 0.15),
+    0 16px 40px rgba(80, 24, 45, 0.08),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.8);
 }
 
-/* Figma VeriGate Form Inputs High Contrast - Exact Match #481A2B */
+/* Form Inputs: Light Warm Cream / White with Maroon Text */
 .glass-input {
-  background: #481A2B;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #FFFFFF;
+  background: #FFFFFF;
+  border: 1px solid rgba(123, 46, 70, 0.18);
+  color: #2B0E17;
   transition: all 0.2s ease-in-out;
 }
 
 .glass-input:focus {
   outline: none;
-  background: #542234;
-  border-color: rgba(255, 255, 255, 0.35);
-  box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.35);
+  background: #FFFFFF;
+  border-color: #8C2A44;
+  box-shadow: 0 0 0 3px rgba(140, 42, 68, 0.18);
 }
 
 /* Custom Scrollbar */
@@ -89,14 +89,14 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #0A0205;
+  background: #F4E8DF;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #4D0E25;
+  background: #8C2A44;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #9F1239;
+  background: #6D1E33;
 }
