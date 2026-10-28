@@ -37,6 +37,7 @@ import {
   CheckCheck,
   MoreHorizontal,
   ChevronLeft,
+  Trash2,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -248,6 +249,34 @@ export default function AdminDashboardPage() {
     setAdmittedList((prev) => ({ ...prev, [id]: decision }));
   };
 
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+
+  const handleDeleteRecord = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!confirm('Apakah Anda yakin ingin menghapus data verifikasi ini?')) return;
+
+    setIsDeleting(id);
+    try {
+      const res = await fetch(`/api/admin/verifications?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (data.success) {
+        setVerifications((prev) => prev.filter((v) => v.id !== id));
+        if (selectedRecord?.id === id) {
+          setSelectedRecord(null);
+        }
+      } else {
+        alert(data.message || 'Gagal menghapus rekaman.');
+      }
+    } catch (err) {
+      console.error('Failed to delete verification:', err);
+      alert('Terjadi kesalahan saat menghapus rekaman.');
+    } finally {
+      setIsDeleting(null);
+    }
+  };
+
   const notificationsList = [
     { id: 1, name: 'Nadia Rahmawati', desc: 'Depth variance rendah', time: '10:42:18 - REG-24031', type: 'warning' },
     { id: 2, name: 'Rizky Aditya', desc: 'Virtual camera terdeteksi', time: '10:38:51 - REG-24079', type: 'blocked' },
@@ -317,7 +346,10 @@ export default function AdminDashboardPage() {
 
               {/* Menu 2: Audit visual */}
               <button
-                onClick={() => setActiveTab('audit')}
+                onClick={() => {
+                  setActiveTab('audit');
+                  setSelectedRecord(null);
+                }}
                 className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl text-xs sm:text-sm font-semibold transition-all ${
                   activeTab === 'audit'
                     ? 'bg-[#FBECEF] text-[#9E2648]'
@@ -730,7 +762,10 @@ export default function AdminDashboardPage() {
                       return (
                         <div
                           key={item.id}
-                          onClick={() => setSelectedRecord(item)}
+                          onClick={() => {
+                            setSelectedRecord(item);
+                            setActiveTab('audit');
+                          }}
                           className="p-4 rounded-2xl border border-[#F2E4E8] bg-white hover:bg-[#FDF9FA] transition-all cursor-pointer flex items-center justify-between gap-4"
                         >
                           <div className="flex items-center gap-3.5 min-w-0">
@@ -804,6 +839,13 @@ export default function AdminDashboardPage() {
                               >
                                 <UserX className="w-4 h-4" />
                               </button>
+                              <button
+                                onClick={(e) => handleDeleteRecord(item.id, e)}
+                                title="Hapus rekaman"
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors ml-1"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -818,134 +860,350 @@ export default function AdminDashboardPage() {
           {/* ========================================================================= */}
           {/* TAB 2: AUDIT VISUAL (Matching Figma Version 44) */}
           {/* ========================================================================= */}
+          {/* ========================================================================= */}
+          {/* TAB 2: AUDIT VISUAL (Matching Figma Version 44) */}
+          {/* ========================================================================= */}
           {activeTab === 'audit' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2B0E17] tracking-tight">
-                    Audit visual
-                  </h1>
-                  <p className="text-xs sm:text-sm text-[#7D5662] mt-0.5">
-                    Tinjau verifikasi yang membutuhkan keputusan manual.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-semibold">
-                  <span className="w-2 h-2 rounded-full bg-[#12B76A] animate-pulse"></span>
-                  <span>{needReviewCount + spoofCount} kasus perlu tindakan</span>
-                </div>
-              </div>
+            selectedRecord ? (
+              <div className="space-y-6">
+                {/* Top bar: Kembali & Status Badge */}
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={() => setSelectedRecord(null)}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-[#8C3A50] hover:text-[#9E2648] transition-colors bg-white px-3.5 py-1.5 rounded-full border border-[#F2E4E8] shadow-sm"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Kembali</span>
+                  </button>
 
-              {/* 3 Metric Summary Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-                  <p className="text-xs font-medium text-[#7D5662]">Antrean aktif</p>
-                  <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{needReviewCount + spoofCount}</h3>
-                  <p className="text-[11px] font-medium text-[#9E2648] mt-1">{spoofCount} terdeteksi pelanggaran</p>
-                </div>
-
-                <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-                  <p className="text-xs font-medium text-[#7D5662]">Ditinjau hari ini</p>
-                  <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{totalVerifs}</h3>
-                  <p className="text-[11px] font-medium text-gray-400 mt-1">Total sesi terverifikasi</p>
-                </div>
-
-                <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-                  <p className="text-xs font-medium text-[#7D5662]">Keputusan manual</p>
-                  <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{Object.keys(admittedList).length}</h3>
-                  <p className="text-[11px] font-medium text-gray-400 mt-1">{Object.keys(admittedList).length} tindakan host diambil</p>
-                </div>
-              </div>
-
-              {/* Antrean Pemeriksaan Table */}
-              <div className="bg-white p-6 rounded-[28px] border border-[#F0E4E7] shadow-[0_4px_24px_rgba(0,0,0,0.02)] space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-[#F7ECEF]">
-                  <div>
-                    <h3 className="text-base font-bold text-[#2B0E17]">Antrean pemeriksaan</h3>
-                    <p className="text-xs text-[#7D5662]">Diurutkan berdasarkan waktu masuk data</p>
-                  </div>
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-bold border border-[#FDE8B3]">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>Semua risiko ({verifications.length})</span>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  {verifications.length === 0 ? (
-                    <div className="p-8 text-center text-gray-400 text-xs">
-                      Tidak ada antrean pemeriksaan.
-                    </div>
+                  {admittedList[selectedRecord.id] ? (
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                      admittedList[selectedRecord.id] === 'ADMITTED'
+                        ? 'bg-[#EDF9F4] text-[#12B76A] border border-[#A6F4C5]'
+                        : 'bg-[#FEE4E2] text-[#F04438] border border-[#FECDCA]'
+                    }`}>
+                      &bull; {admittedList[selectedRecord.id] === 'ADMITTED' ? 'Diizinkan masuk' : 'Akses ditolak'}
+                    </span>
+                  ) : selectedRecord.status === 'PASSED' ? (
+                    <span className="px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-bold border border-[#A6F4C5]">
+                      &bull; Berhasil
+                    </span>
+                  ) : selectedRecord.status === 'SPOOF_FAILED' || selectedRecord.status === 'VIRTUAL_CAM_BLOCKED' ? (
+                    <span className="px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-bold border border-[#FECDCA]">
+                      &bull; Diblokir
+                    </span>
                   ) : (
-                    verifications.map((item) => {
-                      const isBlocked = item.status === 'SPOOF_FAILED' || item.status === 'VIRTUAL_CAM_BLOCKED';
-                      const isPassed = item.status === 'PASSED';
-                      const decision = admittedList[item.id];
-                      return (
-                        <div
-                          key={item.id}
-                          onClick={() => setSelectedRecord(item)}
-                          className="p-4 rounded-2xl border border-[#F2E4E8] bg-white hover:bg-[#FDF9FA] transition-all cursor-pointer flex items-center justify-between gap-4"
-                        >
-                          <div className="flex items-center gap-3.5 min-w-0">
-                            {item.snapshot_url ? (
-                              <div className="relative w-11 h-11 rounded-xl overflow-hidden border border-gray-200 shrink-0 bg-gray-100">
-                                <Image src={item.snapshot_url} alt={item.full_name} fill unoptimized className="object-cover" />
-                              </div>
-                            ) : (
-                              <div className="w-11 h-11 rounded-xl bg-[#FAF0F2] text-[#9E2648] font-bold text-xs flex items-center justify-center shrink-0 border border-[#F2D7DE]">
-                                {item.full_name.substring(0, 2).toUpperCase()}
-                              </div>
-                            )}
-
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h4 className="text-xs sm:text-sm font-bold text-[#2B0E17]">{item.full_name}</h4>
-                                {decision && (
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                    decision === 'ADMITTED' ? 'bg-[#EDF9F4] text-[#12B76A]' : 'bg-[#FEE4E2] text-[#F04438]'
-                                  }`}>
-                                    {decision}
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-[11px] text-gray-400 font-mono">
-                                {item.job_position} &middot; {item.email}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-6">
-                            <span className="text-xs text-gray-500 flex items-center gap-1 font-mono">
-                              <Clock className="w-3.5 h-3.5 text-gray-400" />
-                              {new Date(item.created_at).toLocaleTimeString('id-ID')}
-                            </span>
-
-                            <span className="text-xs text-[#7D5662] max-w-xs truncate hidden sm:inline-block">
-                              {item.failure_reason || (isPassed ? 'Verifikasi lolos (3D Live)' : 'Pemeriksaan lanjutan')}
-                            </span>
-
-                            {isPassed ? (
-                              <span className="px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-semibold">
-                                &bull; Berhasil
-                              </span>
-                            ) : isBlocked ? (
-                              <span className="px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-semibold">
-                                &bull; Diblokir
-                              </span>
-                            ) : (
-                              <span className="px-3 py-1 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-semibold">
-                                &bull; Perlu ditinjau
-                              </span>
-                            )}
-
-                            <ChevronRight className="w-4 h-4 text-gray-400" />
-                          </div>
-                        </div>
-                      );
-                    })
+                    <span className="px-3 py-1 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-bold border border-[#FDE8B3]">
+                      &bull; Perlu ditinjau
+                    </span>
                   )}
                 </div>
+
+                {/* Title */}
+                <div>
+                  <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2B0E17] tracking-tight">
+                    Tinjau verifikasi
+                  </h1>
+                  <p className="text-xs sm:text-sm text-[#7D5662] mt-0.5">
+                    Validasi bukti visual dan metrik deteksi.
+                  </p>
+                </div>
+
+                {/* 2-Column Inspection Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  {/* Left Column: Snapshot bukti */}
+                  <div className="lg:col-span-7 bg-white p-6 rounded-[28px] border border-[#F0E4E7] shadow-[0_4px_24px_rgba(0,0,0,0.02)] space-y-4">
+                    <h3 className="text-base font-bold text-[#2B0E17]">Snapshot bukti</h3>
+
+                    <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-[#1E0D13] flex items-center justify-center border border-[#F2E4E8]">
+                      {selectedRecord.snapshot_url ? (
+                        <>
+                          <Image
+                            src={selectedRecord.snapshot_url}
+                            alt={selectedRecord.full_name}
+                            fill
+                            unoptimized
+                            className="object-cover"
+                          />
+                          <div className="absolute bottom-4 left-4 px-3 py-1.5 rounded-full bg-[#12B76A]/90 backdrop-blur-md text-white text-xs font-semibold flex items-center gap-2 shadow-lg">
+                            <ScanFace className="w-4 h-4" />
+                            <span>Wajah terdeteksi</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center p-8 text-center text-white/60">
+                          <div className="w-20 h-20 rounded-2xl bg-white/10 flex items-center justify-center text-[#F2D7DE] font-bold text-2xl mb-3 border border-white/15">
+                            {selectedRecord.full_name.substring(0, 2).toUpperCase()}
+                          </div>
+                          <p className="text-sm font-semibold text-white">Tidak Ada Snapshot Bukti</p>
+                          <p className="text-xs text-white/50 mt-1 max-w-xs">
+                            Kandidat lolos uji biometrik tanpa insiden keamanan yang perlu direkam.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Column: Candidate Profile & Metrics */}
+                  <div className="lg:col-span-5 bg-white p-6 rounded-[28px] border border-[#F0E4E7] shadow-[0_4px_24px_rgba(0,0,0,0.02)] flex flex-col justify-between space-y-6">
+                    <div>
+                      {/* Profile Header */}
+                      <div className="flex items-center gap-3.5 pb-5 border-b border-[#F7ECEF]">
+                        {selectedRecord.snapshot_url ? (
+                          <div className="relative w-12 h-12 rounded-2xl overflow-hidden border border-gray-200 shrink-0 bg-gray-100">
+                            <Image src={selectedRecord.snapshot_url} alt={selectedRecord.full_name} fill unoptimized className="object-cover" />
+                          </div>
+                        ) : (
+                          <div className="w-12 h-12 rounded-2xl bg-[#FAF0F2] text-[#9E2648] font-bold text-sm flex items-center justify-center shrink-0 border border-[#F2D7DE]">
+                            {selectedRecord.full_name.substring(0, 2).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <h4 className="text-base font-bold text-[#2B0E17] truncate">{selectedRecord.full_name}</h4>
+                          <p className="text-xs text-[#7D5662] truncate">
+                            {selectedRecord.id.substring(0, 16)} &middot; {selectedRecord.job_position}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Details Table */}
+                      <div className="divide-y divide-[#F7ECEF] text-xs">
+                        <div className="flex items-center justify-between py-3">
+                          <span className="text-[#7D5662]">Waktu verifikasi</span>
+                          <span className="font-semibold text-[#2B0E17]">
+                            {new Date(selectedRecord.created_at).toLocaleString('id-ID', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                            })}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between py-3">
+                          <span className="text-[#7D5662]">Hasil deteksi</span>
+                          <span className="font-semibold text-[#2B0E17] text-right max-w-[200px] truncate">
+                            {selectedRecord.failure_reason || (selectedRecord.status === 'PASSED' ? 'Verifikasi lolos (3D Live)' : 'Pemeriksaan lanjutan')}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between py-3">
+                          <span className="text-[#7D5662]">Depth variance</span>
+                          <span className="font-semibold text-[#2B0E17]">
+                            {selectedRecord.depth_variance?.toFixed(4) || '0.0028'} &middot;{' '}
+                            <span className={(selectedRecord.depth_variance ?? 0) < 0.0012 ? 'text-red-500' : 'text-emerald-600'}>
+                              {(selectedRecord.depth_variance ?? 0) < 0.0012 ? 'Rendah' : 'Optimal'}
+                            </span>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between py-3">
+                          <span className="text-[#7D5662]">Luminance</span>
+                          <span className="font-semibold text-[#2B0E17]">
+                            {Math.round(selectedRecord.luminance_score || 68)}% &middot;{' '}
+                            <span className="text-emerald-600">Optimal</span>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between py-3">
+                          <span className="text-[#7D5662]">Perangkat</span>
+                          <span className="font-semibold text-[#2B0E17]">
+                            {selectedRecord.user_agent?.includes('Windows')
+                              ? 'Chrome • Windows 11'
+                              : selectedRecord.user_agent?.includes('Mac')
+                              ? 'Safari • macOS'
+                              : 'Web Browser'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between py-3">
+                          <span className="text-[#7D5662]">Alamat IP</span>
+                          <span className="font-mono text-gray-500 text-[11px]">
+                            {selectedRecord.ip_address || '127.0.0.1'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="space-y-3 pt-4 border-t border-[#F7ECEF]">
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => handleDecision(selectedRecord.id, 'ADMITTED')}
+                          className={`w-full py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                            admittedList[selectedRecord.id] === 'ADMITTED'
+                              ? 'bg-[#12B76A] text-white shadow-md shadow-[#12B76A]/20'
+                              : 'bg-[#EDF9F4] text-[#12B76A] hover:bg-[#DDF4EA] border border-[#A6F4C5]'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Izinkan masuk</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleDecision(selectedRecord.id, 'REMOVED')}
+                          className={`w-full py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                            admittedList[selectedRecord.id] === 'REMOVED'
+                              ? 'bg-[#F04438] text-white shadow-md shadow-[#F04438]/20'
+                              : 'bg-[#FEE4E2] text-[#F04438] hover:bg-[#FCD4D0] border border-[#FECDCA]'
+                          }`}
+                        >
+                          <AlertTriangle className="w-4 h-4" />
+                          <span>Tolak akses</span>
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={() => handleDeleteRecord(selectedRecord.id)}
+                        disabled={isDeleting === selectedRecord.id}
+                        className="w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 text-red-600 hover:bg-red-50 border border-red-200 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>{isDeleting === selectedRecord.id ? 'Menghapus data...' : 'Hapus Rekaman Ini'}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2B0E17] tracking-tight">
+                      Audit visual
+                    </h1>
+                    <p className="text-xs sm:text-sm text-[#7D5662] mt-0.5">
+                      Tinjau verifikasi yang membutuhkan keputusan manual.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-[#12B76A] animate-pulse"></span>
+                    <span>{needReviewCount + spoofCount} kasus perlu tindakan</span>
+                  </div>
+                </div>
+
+                {/* 3 Metric Summary Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
+                    <p className="text-xs font-medium text-[#7D5662]">Antrean aktif</p>
+                    <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{needReviewCount + spoofCount}</h3>
+                    <p className="text-[11px] font-medium text-[#9E2648] mt-1">{spoofCount} terdeteksi pelanggaran</p>
+                  </div>
+
+                  <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
+                    <p className="text-xs font-medium text-[#7D5662]">Ditinjau hari ini</p>
+                    <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{totalVerifs}</h3>
+                    <p className="text-[11px] font-medium text-gray-400 mt-1">Total sesi terverifikasi</p>
+                  </div>
+
+                  <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
+                    <p className="text-xs font-medium text-[#7D5662]">Keputusan manual</p>
+                    <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{Object.keys(admittedList).length}</h3>
+                    <p className="text-[11px] font-medium text-gray-400 mt-1">{Object.keys(admittedList).length} tindakan host diambil</p>
+                  </div>
+                </div>
+
+                {/* Antrean Pemeriksaan Table */}
+                <div className="bg-white p-6 rounded-[28px] border border-[#F0E4E7] shadow-[0_4px_24px_rgba(0,0,0,0.02)] space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-[#F7ECEF]">
+                    <div>
+                      <h3 className="text-base font-bold text-[#2B0E17]">Antrean pemeriksaan</h3>
+                      <p className="text-xs text-[#7D5662]">Diurutkan berdasarkan waktu masuk data</p>
+                    </div>
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-bold border border-[#FDE8B3]">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      <span>Semua risiko ({verifications.length})</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {verifications.length === 0 ? (
+                      <div className="p-8 text-center text-gray-400 text-xs">
+                        Tidak ada antrean pemeriksaan.
+                      </div>
+                    ) : (
+                      verifications.map((item) => {
+                        const isBlocked = item.status === 'SPOOF_FAILED' || item.status === 'VIRTUAL_CAM_BLOCKED';
+                        const isPassed = item.status === 'PASSED';
+                        const decision = admittedList[item.id];
+                        return (
+                          <div
+                            key={item.id}
+                            onClick={() => setSelectedRecord(item)}
+                            className="p-4 rounded-2xl border border-[#F2E4E8] bg-white hover:bg-[#FDF9FA] transition-all cursor-pointer flex items-center justify-between gap-4"
+                          >
+                            <div className="flex items-center gap-3.5 min-w-0">
+                              {item.snapshot_url ? (
+                                <div className="relative w-11 h-11 rounded-xl overflow-hidden border border-gray-200 shrink-0 bg-gray-100">
+                                  <Image src={item.snapshot_url} alt={item.full_name} fill unoptimized className="object-cover" />
+                                </div>
+                              ) : (
+                                <div className="w-11 h-11 rounded-xl bg-[#FAF0F2] text-[#9E2648] font-bold text-xs flex items-center justify-center shrink-0 border border-[#F2D7DE]">
+                                  {item.full_name.substring(0, 2).toUpperCase()}
+                                </div>
+                              )}
+
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h4 className="text-xs sm:text-sm font-bold text-[#2B0E17]">{item.full_name}</h4>
+                                  {decision && (
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                      decision === 'ADMITTED' ? 'bg-[#EDF9F4] text-[#12B76A]' : 'bg-[#FEE4E2] text-[#F04438]'
+                                    }`}>
+                                      {decision}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-gray-400 font-mono">
+                                  {item.job_position} &middot; {item.email}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-6">
+                              <span className="text-xs text-gray-500 flex items-center gap-1 font-mono">
+                                <Clock className="w-3.5 h-3.5 text-gray-400" />
+                                {new Date(item.created_at).toLocaleTimeString('id-ID')}
+                              </span>
+
+                              <span className="text-xs text-[#7D5662] max-w-xs truncate hidden sm:inline-block">
+                                {item.failure_reason || (isPassed ? 'Verifikasi lolos (3D Live)' : 'Pemeriksaan lanjutan')}
+                              </span>
+
+                              {isPassed ? (
+                                <span className="px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-semibold">
+                                  &bull; Berhasil
+                                </span>
+                              ) : isBlocked ? (
+                                <span className="px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-semibold">
+                                  &bull; Diblokir
+                                </span>
+                              ) : (
+                                <span className="px-3 py-1 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-semibold">
+                                  &bull; Perlu ditinjau
+                                </span>
+                              )}
+
+                              <button
+                                onClick={(e) => handleDeleteRecord(item.id, e)}
+                                title="Hapus rekaman"
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+
+                              <ChevronRight className="w-4 h-4 text-gray-400" />
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
           )}
 
           {/* ========================================================================= */}
@@ -1029,7 +1287,10 @@ export default function AdminDashboardPage() {
                     return (
                       <div
                         key={item.id}
-                        onClick={() => setSelectedRecord(item)}
+                        onClick={() => {
+                          setSelectedRecord(item);
+                          setActiveTab('audit');
+                        }}
                         className="p-4 rounded-2xl border border-[#F2E4E8] bg-white hover:bg-[#FDF9FA] transition-all cursor-pointer flex items-center justify-between gap-4"
                       >
                         <div className="flex items-center gap-3.5 min-w-0">
@@ -1073,7 +1334,13 @@ export default function AdminDashboardPage() {
                             </span>
                           )}
 
-                          <MoreHorizontal className="w-4 h-4 text-gray-400" />
+                          <button
+                            onClick={(e) => handleDeleteRecord(item.id, e)}
+                            title="Hapus rekaman"
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
                     );

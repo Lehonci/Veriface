@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
       depthVariance,
       luminanceScore,
       confidenceScore,
+      snapshotBase64,
     } = body;
 
     if (!fullName || !email || !jobPosition) {
@@ -54,6 +55,37 @@ export async function POST(req: NextRequest) {
     }
 
     const verificationId = `verif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    let snapshotUrl: string | null = null;
+
+    if (snapshotBase64 && isSupabaseServerConfigured && supabaseServer) {
+      try {
+        const base64Data = snapshotBase64.replace(/^data:image\/\w+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        const fileName = `${verificationId}_${Date.now()}.webp`;
+
+        const { error: uploadError } = await supabaseServer.storage
+          .from('snapshots')
+          .upload(fileName, buffer, {
+            contentType: 'image/webp',
+            upsert: true,
+          });
+
+        if (!uploadError) {
+          const { data: publicUrlData } = supabaseServer.storage
+            .from('snapshots')
+            .getPublicUrl(fileName);
+          snapshotUrl = publicUrlData.publicUrl;
+        } else {
+          console.warn('Storage upload error (pass):', uploadError);
+          snapshotUrl = snapshotBase64;
+        }
+      } catch (uploadErr) {
+        console.warn('Snapshot upload exception (pass):', uploadErr);
+        snapshotUrl = snapshotBase64;
+      }
+    } else if (snapshotBase64) {
+      snapshotUrl = snapshotBase64;
+    }
 
     const token = await signVerificationToken({
       sub: verificationId,
@@ -73,7 +105,7 @@ export async function POST(req: NextRequest) {
       depth_variance: depthVariance || 0.0028,
       luminance_score: luminanceScore || 65.0,
       confidence_score: confidenceScore || 0.96,
-      snapshot_url: null,
+      snapshot_url: snapshotUrl,
       ip_address: ipAddress,
       user_agent: userAgent,
       jwt_token_jti: token.substring(0, 32),

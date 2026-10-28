@@ -63,3 +63,64 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, message: 'ID rekaman verifikasi diperlukan.' },
+        { status: 400 }
+      );
+    }
+
+    if (isSupabaseServerConfigured && supabaseServer) {
+      // Find record to clean up snapshot in storage if it exists
+      const { data: record } = await supabaseServer
+        .from('verifications')
+        .select('snapshot_url')
+        .eq('id', id)
+        .single();
+
+      if (record?.snapshot_url && record.snapshot_url.includes('/snapshots/')) {
+        try {
+          const fileName = record.snapshot_url.split('/snapshots/').pop();
+          if (fileName) {
+            await supabaseServer.storage.from('snapshots').remove([fileName]);
+          }
+        } catch (storageErr) {
+          console.warn('Storage delete warning:', storageErr);
+        }
+      }
+
+      const { error } = await supabaseServer
+        .from('verifications')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('Supabase delete error:', error);
+        throw error;
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Rekaman verifikasi berhasil dihapus.',
+      });
+    }
+
+    mockDB.verifications = mockDB.verifications.filter((v) => v.id !== id);
+    return NextResponse.json({
+      success: true,
+      message: 'Rekaman verifikasi berhasil dihapus dari memori.',
+    });
+  } catch (error: unknown) {
+    console.error('Error in DELETE /api/admin/verifications:', error);
+    return NextResponse.json(
+      { success: false, message: 'Gagal menghapus rekaman verifikasi.' },
+      { status: 500 }
+    );
+  }
+}
