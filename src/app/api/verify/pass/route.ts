@@ -36,16 +36,25 @@ export async function POST(req: NextRequest) {
     };
 
     if (isSupabaseServerConfigured && supabaseServer) {
-      const { data: zoomData } = await supabaseServer
+      const { data: zoomList, error: zoomErr } = await supabaseServer
         .from('zoom_settings')
         .select('*')
         .eq('is_active', true)
         .order('updated_at', { ascending: false })
-        .limit(1)
-        .single();
+        .limit(1);
 
-      if (zoomData) {
-        activeZoom = zoomData;
+      if (zoomList && zoomList.length > 0 && zoomList[0].zoom_url) {
+        activeZoom = zoomList[0];
+      } else {
+        const { data: latestList } = await supabaseServer
+          .from('zoom_settings')
+          .select('*')
+          .order('updated_at', { ascending: false })
+          .limit(1);
+
+        if (latestList && latestList.length > 0 && latestList[0].zoom_url) {
+          activeZoom = latestList[0];
+        }
       }
     } else {
       const activeMock = mockDB.zoomSettings.find((z) => z.is_active);

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -58,6 +58,17 @@ export default function AdminDashboardPage() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [admittedList, setAdmittedList] = useState<Record<string, 'ADMITTED' | 'REMOVED'>>({});
   const [modalSnapshot, setModalSnapshot] = useState<string | null>(null);
+  const [auditFilter, setAuditFilter] = useState<'ACTIVE' | 'DECIDED' | 'ALL_RISK' | 'ALL'>('ACTIVE');
+
+  // Load persisted decisions
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('veriface_admitted_list');
+        if (saved) setAdmittedList(JSON.parse(saved));
+      } catch (e) {}
+    }
+  }, []);
 
   // Notification state
   const [showNotificationModal, setShowNotificationModal] = useState<boolean>(false);
@@ -79,22 +90,154 @@ export default function AdminDashboardPage() {
   // Chart Time Range Filter: 'today' | '7days' | '30days'
   const [chartTimeRange, setChartTimeRange] = useState<'today' | '7days' | '30days'>('7days');
 
-  // Authentication Guard
+  // Admin Profile Synced with Supabase
+  const [adminProfile, setAdminProfile] = useState<{
+    id?: string;
+    email: string;
+    full_name: string;
+    role: string;
+    last_login?: string | null;
+  }>({
+    email: 'muhammadbafqi@gmail.com',
+    full_name: 'Muhammad Bafqi',
+    role: 'Admin',
+    last_login: null,
+  });
+
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editFullName, setEditFullName] = useState('');
+  const [editRole, setEditRole] = useState('');
+  const [editPassword, setEditPassword] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileMessage, setProfileMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const getInitials = (name?: string) => {
+    if (!name) return 'AD';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
+
+  const fetchAdminProfile = useCallback(async () => {
+    try {
+      let savedEmail = '';
+      if (typeof window !== 'undefined') {
+        const storedProfile = sessionStorage.getItem('admin_profile');
+        if (storedProfile) {
+          try {
+            const parsed = JSON.parse(storedProfile);
+            setAdminProfile(parsed);
+            savedEmail = parsed.email;
+          } catch (e) {}
+        }
+        if (!savedEmail) {
+          savedEmail = sessionStorage.getItem('admin_email') || '';
+        }
+      }
+
+      const res = await fetch(`/api/admin/profile${savedEmail ? `?email=${encodeURIComponent(savedEmail)}` : ''}`, {
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (data.success && data.admin) {
+        setAdminProfile(data.admin);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('admin_profile', JSON.stringify(data.admin));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to sync admin profile:', err);
+    }
+  }, []);
+
+  const handleOpenEditProfile = () => {
+    setEditFullName(adminProfile.full_name || '');
+    setEditRole(adminProfile.role || '');
+    setEditPassword('');
+    setProfileMessage(null);
+    setIsEditingProfile(true);
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingProfile(true);
+    setProfileMessage(null);
+
+    try {
+      const res = await fetch('/api/admin/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: adminProfile.id,
+          email: adminProfile.email,
+          full_name: editFullName || adminProfile.full_name,
+          role: editRole || adminProfile.role,
+          password: editPassword || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        const updated = {
+          ...adminProfile,
+          full_name: editFullName || adminProfile.full_name,
+          role: editRole || adminProfile.role,
+        };
+        setAdminProfile(updated);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('admin_profile', JSON.stringify(updated));
+        }
+        setProfileMessage({ type: 'success', text: 'Profil administrator berhasil diperbarui!' });
+        setTimeout(() => setIsEditingProfile(false), 800);
+      } else {
+        setProfileMessage({ type: 'error', text: data.error || 'Gagal memperbarui profil.' });
+      }
+    } catch (err: any) {
+      setProfileMessage({ type: 'error', text: err.message || 'Terjadi kesalahan jaringan.' });
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  // Authentication Guard with Remembered Session support
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const auth = sessionStorage.getItem('admin_auth');
-      if (auth !== 'true') {
-        router.push('/admin/login');
-      } else {
+      if (auth === 'true') {
         setIsAuthenticated(true);
+        fetchAdminProfile();
+        return;
       }
+
+      // Check for persistent remembered session
+      const savedSession = localStorage.getItem('veriface_admin_session');
+      if (savedSession) {
+        try {
+          const parsed = JSON.parse(savedSession);
+          if (parsed.expiresAt && parsed.expiresAt > Date.now()) {
+            sessionStorage.setItem('admin_auth', 'true');
+            sessionStorage.setItem('admin_email', parsed.email);
+            sessionStorage.setItem('admin_profile', JSON.stringify(parsed));
+            setIsAuthenticated(true);
+            fetchAdminProfile();
+            return;
+          }
+        } catch (e) {}
+      }
+
+      router.push('/admin/login');
     }
-  }, [router]);
+  }, [router, fetchAdminProfile]);
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
       sessionStorage.removeItem('admin_auth');
       sessionStorage.removeItem('admin_email');
+      sessionStorage.removeItem('admin_profile');
+      localStorage.removeItem('veriface_admin_session');
+      // veriface_saved_email remains saved so email is prefilled on login!
     }
     router.push('/admin/login');
   };
@@ -111,7 +254,8 @@ export default function AdminDashboardPage() {
       const data = await res.json();
       if (data.success && data.verifications) {
         setVerifications(data.verifications);
-        setSelectedRecord((prev) => prev || (data.verifications.length > 0 ? data.verifications[0] : null));
+        // Only refresh currently open record if one was actively selected; do not auto-open detail view
+        setSelectedRecord((prev) => (prev ? data.verifications.find((v: VerificationRecord) => v.id === prev.id) || null : null));
       }
     } catch (err) {
       console.error('Error fetching verifications:', err);
@@ -178,21 +322,56 @@ export default function AdminDashboardPage() {
       const data = await res.json();
       if (data.success) {
         setSaveSettingsSuccess(true);
-        setTimeout(() => setSaveSettingsSuccess(false), 3000);
+        setTimeout(() => setSaveSettingsSuccess(false), 4000);
+        await fetchSettings();
+      } else {
+        alert(data.message || 'Gagal menyimpan pengaturan Zoom.');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Save settings failed:', e);
+      alert('Terjadi kesalahan koneksi saat menyimpan pengaturan.');
     }
   };
 
-  // Dynamic KPI calculated purely from live database records
+  // Dynamic KPI calculated purely from live database records + host decisions
   const totalVerifs = verifications.length;
-  const passedCount = verifications.filter((v) => v.status === 'PASSED').length;
-  const spoofCount = verifications.filter((v) => v.status === 'SPOOF_FAILED').length;
-  const needReviewCount = verifications.filter((v) => v.status === 'VIRTUAL_CAM_BLOCKED' || v.status === 'POOR_LIGHTING').length;
-  const passRate = totalVerifs > 0 ? ((passedCount / totalVerifs) * 100).toFixed(1) : '0';
-  const needReviewRate = totalVerifs > 0 ? ((needReviewCount / totalVerifs) * 100).toFixed(1) : '0';
-  const spoofRate = totalVerifs > 0 ? ((spoofCount / totalVerifs) * 100).toFixed(1) : '0';
+
+  // All non-passed incidents entering the audit pool
+  const auditQueueList = verifications.filter((v) => v.status !== 'PASSED');
+
+  // Incidents that have NOT been decided yet (pending review)
+  const activePendingQueue = auditQueueList.filter((v) => !admittedList[v.id]);
+  const activeQueueCount = activePendingQueue.length;
+
+  // Incidents decided by host
+  const decidedList = auditQueueList.filter((v) => !!admittedList[v.id]);
+  const decidedCount = decidedList.length;
+  const removedCount = auditQueueList.filter((v) => admittedList[v.id] === 'REMOVED').length;
+  const manuallyAdmittedCount = auditQueueList.filter((v) => admittedList[v.id] === 'ADMITTED').length;
+
+  // Final count tallies (100% synchronized and mathematically sum to totalVerifs)
+  const totalPassedCount = verifications.filter((v) => v.status === 'PASSED').length + manuallyAdmittedCount;
+  // If host has made decisions, display blocked count reflects removed cases; otherwise all unreviewed violations are pending review
+  const displayBlockedCount = decidedCount > 0 ? removedCount : 0;
+
+  // Percentage calculations
+  const passRate = totalVerifs > 0 ? ((totalPassedCount / totalVerifs) * 100).toFixed(1) : '0';
+  const activeAuditRate = totalVerifs > 0 ? ((activeQueueCount / totalVerifs) * 100).toFixed(1) : '0';
+  const blockedRate = totalVerifs > 0 ? ((displayBlockedCount / totalVerifs) * 100).toFixed(1) : '0';
+
+  // Donut chart arc calculations (Circumference = 2 * PI * 38 = 238.76)
+  const donutCirc = 238.76;
+  const segPassed = totalVerifs > 0 ? (totalPassedCount / totalVerifs) * donutCirc : 0;
+  const segReview = totalVerifs > 0 ? (activeQueueCount / totalVerifs) * donutCirc : 0;
+  const segBlocked = totalVerifs > 0 ? (displayBlockedCount / totalVerifs) * donutCirc : 0;
+
+  const displayedAuditList = verifications.filter((item) => {
+    if (auditFilter === 'DECIDED') return !!admittedList[item.id];
+    if (auditFilter === 'ALL_RISK') return item.status !== 'PASSED';
+    if (auditFilter === 'ALL') return true;
+    // Default 'ACTIVE': risk incidents that have NOT been decided yet
+    return item.status !== 'PASSED' && !admittedList[item.id];
+  });
 
   // Calculate chart dynamically from verifications created_at based on chartTimeRange
   const daysOfWeek = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
@@ -246,7 +425,26 @@ export default function AdminDashboardPage() {
   }
 
   const handleDecision = (id: string, decision: 'ADMITTED' | 'REMOVED') => {
-    setAdmittedList((prev) => ({ ...prev, [id]: decision }));
+    setAdmittedList((prev) => {
+      const next = { ...prev };
+      if (next[id] === decision) {
+        delete next[id]; // Toggle off if clicked again to reset back to pending queue
+      } else {
+        next[id] = decision;
+      }
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('veriface_admitted_list', JSON.stringify(next));
+      }
+      return next;
+    });
+  };
+
+  const handleResetDecisions = () => {
+    if (!confirm('Kembalikan semua keputusan manual ke antrean aktif?')) return;
+    setAdmittedList({});
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('veriface_admitted_list');
+    }
   };
 
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
@@ -263,6 +461,14 @@ export default function AdminDashboardPage() {
       const data = await res.json();
       if (data.success) {
         setVerifications((prev) => prev.filter((v) => v.id !== id));
+        setAdmittedList((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('veriface_admitted_list', JSON.stringify(next));
+          }
+          return next;
+        });
         if (selectedRecord?.id === id) {
           setSelectedRecord(null);
         }
@@ -277,11 +483,39 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const notificationsList = [
-    { id: 1, name: 'Nadia Rahmawati', desc: 'Depth variance rendah', time: '10:42:18 - REG-24031', type: 'warning' },
-    { id: 2, name: 'Rizky Aditya', desc: 'Virtual camera terdeteksi', time: '10:38:51 - REG-24079', type: 'blocked' },
-    { id: 3, name: 'Aulia Putri Maharani', desc: 'Luminance di bawah batas', time: '10:31:06 - REG-24074', type: 'warning' },
-  ];
+  // Dynamic Realtime Notifications synchronized with live verification database & decisions
+  const dynamicNotifications = useMemo(() => {
+    // Show top recent verifications, prioritizing active unreviewed incidents
+    const incidents = verifications.filter((v) => v.status !== 'PASSED' && !admittedList[v.id]);
+    const others = verifications.filter((v) => !incidents.some((inc) => inc.id === v.id));
+    const combined = [...incidents, ...others].slice(0, 6);
+
+    return combined.map((item) => {
+      const isPassed = item.status === 'PASSED';
+      const isBlocked = item.status === 'SPOOF_FAILED' || item.status === 'VIRTUAL_CAM_BLOCKED';
+      const decision = admittedList[item.id];
+
+      let desc = item.failure_reason || (isPassed ? 'Verifikasi lolos (3D Live)' : 'Terdeteksi risiko foto/layar');
+      if (decision === 'REMOVED') desc = 'Akses ditolak oleh host';
+      if (decision === 'ADMITTED') desc = 'Diizinkan masuk oleh host';
+
+      const timeFormatted = item.created_at
+        ? new Date(item.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        : 'Baru saja';
+
+      return {
+        id: item.id,
+        record: item,
+        name: item.full_name || 'Peserta',
+        desc,
+        time: `${timeFormatted} · ${item.job_position || item.email}`,
+        type: isPassed ? 'passed' : isBlocked ? 'blocked' : 'warning',
+        isPending: !isPassed && !decision,
+      };
+    });
+  }, [verifications, admittedList]);
+
+  const unreadCount = dynamicNotifications.filter((n) => n.isPending).length;
 
   // Filtered History list
   const filteredHistory = verifications.filter((item) => {
@@ -297,6 +531,74 @@ export default function AdminDashboardPage() {
     if (historyStatusFilter === 'REVIEW') return item.status === 'POOR_LIGHTING';
     return true;
   });
+
+  // Export verification history to CSV with real browser download
+  const handleExportCSV = () => {
+    const recordsToExport = filteredHistory.length > 0 ? filteredHistory : verifications;
+
+    if (recordsToExport.length === 0) {
+      alert('Tidak ada data riwayat verifikasi untuk diekspor.');
+      return;
+    }
+
+    const headers = [
+      'ID Verifikasi',
+      'Nama Lengkap',
+      'Email',
+      'Posisi Pekerjaan',
+      'Status Verifikasi',
+      'Keputusan Host',
+      'Alasan / Catatan Deteksi',
+      'Depth Variance',
+      'Luminance Score (%)',
+      'Confidence Score (%)',
+      'Waktu Verifikasi',
+      'Alamat IP',
+      'Tautan Snapshot',
+    ];
+
+    const rows = recordsToExport.map((item) => {
+      const decision = admittedList[item.id] || (item.status === 'PASSED' ? 'DISETUJUI_OTOMATIS' : 'BELUM_DIPUTUSKAN');
+      const formattedDate = item.created_at
+        ? new Date(item.created_at).toLocaleString('id-ID', {
+            dateStyle: 'medium',
+            timeStyle: 'medium',
+          })
+        : '-';
+
+      const rowValues = [
+        item.id,
+        item.full_name || '-',
+        item.email || '-',
+        item.job_position || '-',
+        item.status,
+        decision,
+        item.failure_reason || (item.status === 'PASSED' ? 'Liveness tervalidasi' : '-'),
+        item.depth_variance !== null ? item.depth_variance.toString() : '-',
+        item.luminance_score !== null ? `${item.luminance_score}%` : '-',
+        item.confidence_score !== null ? `${item.confidence_score}%` : '-',
+        formattedDate,
+        item.ip_address || '127.0.0.1',
+        item.snapshot_url || '-',
+      ];
+
+      return rowValues
+        .map((val) => `"${String(val).replace(/"/g, '""')}"`)
+        .join(',');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const timestamp = new Date().toISOString().split('T')[0];
+    link.href = url;
+    link.setAttribute('download', `veriface_laporan_riwayat_${timestamp}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   if (!isAuthenticated) {
     return (
@@ -322,7 +624,7 @@ export default function AdminDashboardPage() {
                 <ScanFace className="w-6 h-6" />
               </div>
               <div>
-                <h2 className="text-lg font-bold tracking-tight text-[#2B0E17]">VeriGate</h2>
+                <h2 className="text-lg font-bold tracking-tight text-[#2B0E17]">Veriface</h2>
                 <p className="text-[10px] tracking-widest uppercase font-semibold text-[#8C3A50]">Identity System</p>
               </div>
             </div>
@@ -361,7 +663,7 @@ export default function AdminDashboardPage() {
                   <span>Audit visual</span>
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#F4DCE1] text-[#9E2648]">
-                  {needReviewCount + spoofCount}
+                  {activeQueueCount}
                 </span>
               </button>
 
@@ -416,16 +718,16 @@ export default function AdminDashboardPage() {
                   : 'bg-[#FAF4F6] border-[#F2E4E8] hover:bg-[#F7ECEF]'
               }`}
             >
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#8A233E] text-white flex items-center justify-center font-bold text-xs shadow-sm">
-                  AR
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-[#8A233E] text-white flex items-center justify-center font-bold text-xs shadow-sm shrink-0">
+                  {getInitials(adminProfile.full_name)}
                 </div>
-                <div>
-                  <h4 className="text-xs font-bold text-[#2B0E17]">Admin Room</h4>
-                  <p className="text-[10px] text-[#8C3A50]">Host &middot; Utama</p>
+                <div className="min-w-0 truncate">
+                  <h4 className="text-xs font-bold text-[#2B0E17] truncate">{adminProfile.full_name}</h4>
+                  <p className="text-[10px] text-[#8C3A50] truncate">{adminProfile.role || 'Administrator'}</p>
                 </div>
               </div>
-              <ChevronRight className="w-4 h-4 text-gray-400" />
+              <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
             </div>
           </div>
         </aside>
@@ -436,22 +738,15 @@ export default function AdminDashboardPage() {
           {/* Top Actions Bar (Search bar removed per request) */}
           <div className="flex items-center justify-end gap-4 relative z-20">
             <div className="flex items-center gap-3">
-              <button
-                onClick={fetchVerifications}
-                className="p-2.5 rounded-full bg-white border border-[#EEDDE2] text-[#6B4B55] hover:text-[#9E2648] hover:bg-[#FAF4F6] shadow-sm transition-all"
-                title="Perbarui data"
-              >
-                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-              </button>
-
               {/* Notification Popover Toggle */}
               <div className="relative">
                 <button
                   onClick={() => setShowNotificationModal(!showNotificationModal)}
                   className="p-2.5 rounded-full bg-white border border-[#EEDDE2] text-[#6B4B55] hover:text-[#9E2648] hover:bg-[#FAF4F6] shadow-sm transition-all relative"
+                  title="Notifikasi"
                 >
                   <Bell className="w-4 h-4" />
-                  {!notificationsRead && (
+                  {!notificationsRead && unreadCount > 0 && (
                     <span className="w-2 h-2 rounded-full bg-[#9E2648] absolute top-2 right-2 animate-pulse"></span>
                   )}
                 </button>
@@ -462,7 +757,9 @@ export default function AdminDashboardPage() {
                     <div className="flex items-center justify-between pb-3 border-b border-[#F7ECEF]">
                       <div>
                         <h4 className="text-sm font-bold text-[#2B0E17]">Notifikasi</h4>
-                        <p className="text-[11px] text-[#7D5662]">3 pembaruan terbaru</p>
+                        <p className="text-[11px] text-[#7D5662]">
+                          {unreadCount > 0 ? `${unreadCount} insiden perlu tindakan` : `${dynamicNotifications.length} pembaruan terbaru`}
+                        </p>
                       </div>
                       <button
                         onClick={() => setNotificationsRead(true)}
@@ -472,27 +769,61 @@ export default function AdminDashboardPage() {
                       </button>
                     </div>
 
-                    <div className="mt-3 space-y-3">
-                      {notificationsList.map((n) => (
-                        <div key={n.id} className="flex items-start gap-3 p-2 rounded-xl hover:bg-[#FAF4F6] transition-colors relative">
-                          <div className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${
-                            n.type === 'blocked' ? 'bg-[#FEE4E2] text-[#F04438]' : 'bg-[#FFF8E6] text-[#F79009]'
-                          }`}>
-                            {n.type === 'blocked' ? <ShieldCheck className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <h5 className="text-xs font-bold text-[#2B0E17] truncate">{n.name}</h5>
-                            <p className="text-[11px] text-[#7D5662] truncate">{n.desc}</p>
-                            <span className="text-[10px] text-gray-400 font-mono mt-0.5 block">{n.time}</span>
-                          </div>
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#9E2648] shrink-0 mt-1"></span>
+                    <div className="mt-3 space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                      {dynamicNotifications.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-gray-400">
+                          Belum ada notifikasi aktivitas.
                         </div>
-                      ))}
+                      ) : (
+                        dynamicNotifications.map((n) => (
+                          <div
+                            key={n.id}
+                            onClick={() => {
+                              setShowNotificationModal(false);
+                              setSelectedRecord(n.record);
+                              setActiveTab('audit');
+                            }}
+                            className="flex items-start gap-3 p-2 rounded-xl hover:bg-[#FAF4F6] transition-colors relative cursor-pointer"
+                            title="Klik untuk membuka tinjauan"
+                          >
+                            <div className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${
+                              n.type === 'passed'
+                                ? 'bg-[#EDF9F4] text-[#12B76A]'
+                                : n.type === 'blocked'
+                                ? 'bg-[#FEE4E2] text-[#F04438]'
+                                : 'bg-[#FFF8E6] text-[#F79009]'
+                            }`}>
+                              {n.type === 'passed' ? (
+                                <CheckCircle2 className="w-4 h-4" />
+                              ) : n.type === 'blocked' ? (
+                                <ShieldCheck className="w-4 h-4" />
+                              ) : (
+                                <AlertTriangle className="w-4 h-4" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-1">
+                                <h5 className="text-xs font-bold text-[#2B0E17] truncate">{n.name}</h5>
+                                {n.isPending && (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#FBECEF] text-[#9E2648]">Aktif</span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-[#7D5662] truncate">{n.desc}</p>
+                              <span className="text-[10px] text-gray-400 font-mono mt-0.5 block">{n.time}</span>
+                            </div>
+                            {n.isPending && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#9E2648] shrink-0 mt-1.5"></span>
+                            )}
+                          </div>
+                        ))
+                      )}
                     </div>
 
                     <button
                       onClick={() => {
                         setShowNotificationModal(false);
+                        setSelectedRecord(null);
+                        setAuditFilter('ACTIVE');
                         setActiveTab('audit');
                       }}
                       className="w-full mt-4 py-2.5 rounded-2xl bg-[#FBECEF] hover:bg-[#F7DCE2] text-[#9E2648] text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
@@ -507,9 +838,10 @@ export default function AdminDashboardPage() {
               {/* Profile Avatar Button */}
               <button
                 onClick={() => setActiveTab('profil')}
+                title={adminProfile.full_name}
                 className="w-10 h-10 rounded-full bg-[#8A233E] text-white flex items-center justify-center font-bold text-xs shadow-sm hover:scale-105 transition-transform"
               >
-                AR
+                {getInitials(adminProfile.full_name)}
               </button>
             </div>
           </div>
@@ -522,7 +854,7 @@ export default function AdminDashboardPage() {
               {/* Greeting Hero Header */}
               <div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2B0E17] tracking-tight">
-                  Selamat datang, Admin
+                  Selamat datang, {adminProfile.full_name}
                 </h1>
                 <p className="text-xs sm:text-sm text-[#7D5662] mt-0.5">
                   Pantau aktivitas verifikasi identitas hari ini.
@@ -548,19 +880,27 @@ export default function AdminDashboardPage() {
                   </div>
                   <div>
                     <p className="text-xs font-medium text-[#7D5662]">Berhasil</p>
-                    <h3 className="text-2xl font-black text-[#2B0E17] mt-0.5">{passedCount.toLocaleString('id-ID')}</h3>
+                    <h3 className="text-2xl font-black text-[#2B0E17] mt-0.5">{totalPassedCount.toLocaleString('id-ID')}</h3>
                     <p className="text-[11px] font-medium text-[#12B76A] mt-0.5">{passRate}% success rate</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex items-center gap-4">
+                <div
+                  onClick={() => {
+                    setSelectedRecord(null);
+                    setAuditFilter('ACTIVE');
+                    setActiveTab('audit');
+                  }}
+                  className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex items-center gap-4 cursor-pointer hover:border-[#8A233E]/30 transition-all"
+                  title="Klik untuk membuka Antrean Audit visual"
+                >
                   <div className="w-12 h-12 rounded-2xl bg-[#FFF8E6] text-[#F79009] flex items-center justify-center shrink-0">
                     <AlertTriangle className="w-6 h-6" />
                   </div>
                   <div>
                     <p className="text-xs font-medium text-[#7D5662]">Perlu ditinjau</p>
-                    <h3 className="text-2xl font-black text-[#2B0E17] mt-0.5">{needReviewCount}</h3>
-                    <p className="text-[11px] font-medium text-[#F79009] mt-0.5">{needReviewCount} kasus</p>
+                    <h3 className="text-2xl font-black text-[#2B0E17] mt-0.5">{activeQueueCount}</h3>
+                    <p className="text-[11px] font-medium text-[#F79009] mt-0.5">{activeQueueCount} kasus aktif</p>
                   </div>
                 </div>
 
@@ -570,8 +910,10 @@ export default function AdminDashboardPage() {
                   </div>
                   <div>
                     <p className="text-xs font-medium text-[#7D5662]">Diblokir</p>
-                    <h3 className="text-2xl font-black text-[#2B0E17] mt-0.5">{spoofCount}</h3>
-                    <p className="text-[11px] font-medium text-[#F04438] mt-0.5">{spoofRate}% dari total</p>
+                    <h3 className="text-2xl font-black text-[#2B0E17] mt-0.5">{displayBlockedCount}</h3>
+                    <p className="text-[11px] font-medium text-[#F04438] mt-0.5">
+                      {decidedCount > 0 ? `${removedCount} dikeluarkan host` : `${auditQueueList.length} pelanggaran terdeteksi`}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -671,28 +1013,48 @@ export default function AdminDashboardPage() {
                       <circle cx="50" cy="50" r="38" stroke="#F4EBEE" strokeWidth="11" fill="transparent" />
                       {totalVerifs > 0 && (
                         <>
-                          <circle
-                            cx="50"
-                            cy="50"
-                            r="38"
-                            stroke="#12B76A"
-                            strokeWidth="11"
-                            strokeDasharray="238.7"
-                            strokeDashoffset={238.7 - (238.7 * passedCount) / (totalVerifs || 1)}
-                            strokeLinecap="round"
-                            fill="transparent"
-                          />
-                          <circle
-                            cx="50"
-                            cy="50"
-                            r="38"
-                            stroke="#F04438"
-                            strokeWidth="11"
-                            strokeDasharray="238.7"
-                            strokeDashoffset={238.7 - (238.7 * spoofCount) / (totalVerifs || 1)}
-                            strokeLinecap="round"
-                            fill="transparent"
-                          />
+                          {/* Segment 1: Green (Berhasil) */}
+                          {segPassed > 0 && (
+                            <circle
+                              cx="50"
+                              cy="50"
+                              r="38"
+                              stroke="#12B76A"
+                              strokeWidth="11"
+                              strokeDasharray={`${segPassed} ${donutCirc - segPassed}`}
+                              strokeDashoffset={0}
+                              fill="transparent"
+                              className="transition-all duration-500"
+                            />
+                          )}
+                          {/* Segment 2: Amber (Perlu ditinjau) */}
+                          {segReview > 0 && (
+                            <circle
+                              cx="50"
+                              cy="50"
+                              r="38"
+                              stroke="#F79009"
+                              strokeWidth="11"
+                              strokeDasharray={`${segReview} ${donutCirc - segReview}`}
+                              strokeDashoffset={-segPassed}
+                              fill="transparent"
+                              className="transition-all duration-500"
+                            />
+                          )}
+                          {/* Segment 3: Red (Diblokir) */}
+                          {segBlocked > 0 && (
+                            <circle
+                              cx="50"
+                              cy="50"
+                              r="38"
+                              stroke="#F04438"
+                              strokeWidth="11"
+                              strokeDasharray={`${segBlocked} ${donutCirc - segBlocked}`}
+                              strokeDashoffset={-(segPassed + segReview)}
+                              fill="transparent"
+                              className="transition-all duration-500"
+                            />
+                          )}
                         </>
                       )}
                     </svg>
@@ -709,15 +1071,15 @@ export default function AdminDashboardPage() {
                         <span className="w-2.5 h-2.5 rounded-full bg-[#12B76A]" />
                         <span className="text-[#6B4B55]">Berhasil</span>
                       </div>
-                      <span className="text-[#2B0E17] font-bold">{passRate}%</span>
+                      <span className="text-[#2B0E17] font-bold">{passRate}% ({totalPassedCount})</span>
                     </div>
 
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full bg-[#F79009]" />
-                        <span className="text-[#6B4B55]">Ditinjau</span>
+                        <span className="text-[#6B4B55]">Perlu ditinjau</span>
                       </div>
-                      <span className="text-[#2B0E17] font-bold">{needReviewRate}%</span>
+                      <span className="text-[#2B0E17] font-bold">{activeAuditRate}% ({activeQueueCount})</span>
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -725,7 +1087,9 @@ export default function AdminDashboardPage() {
                         <span className="w-2.5 h-2.5 rounded-full bg-[#F04438]" />
                         <span className="text-[#6B4B55]">Diblokir</span>
                       </div>
-                      <span className="text-[#2B0E17] font-bold">{spoofRate}%</span>
+                      <span className="text-[#2B0E17] font-bold">
+                        {blockedRate}% ({displayBlockedCount})
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -736,25 +1100,45 @@ export default function AdminDashboardPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-base font-bold text-[#2B0E17]">Antrean audit terbaru</h3>
-                    <p className="text-xs text-[#7D5662]">Insiden yang membutuhkan validasi manual</p>
+                    <p className="text-xs text-[#7D5662]">Insiden yang membutuhkan validasi manual ({activeQueueCount} aktif)</p>
                   </div>
 
                   <button
-                    onClick={() => setActiveTab('audit')}
+                    onClick={() => {
+                      setSelectedRecord(null);
+                      setAuditFilter('ACTIVE');
+                      setActiveTab('audit');
+                    }}
                     className="text-xs font-bold text-[#9E2648] hover:text-[#7A1934] flex items-center gap-1.5 transition-colors"
                   >
-                    <span>Lihat semua</span>
+                    <span>Buka antrean lengkap</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
                 <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
-                  {verifications.length === 0 ? (
-                    <div className="p-8 text-center text-gray-400 text-xs">
-                      Tidak ada catatan verifikasi.
+                  {activePendingQueue.length === 0 ? (
+                    <div className="p-8 text-center text-gray-400 text-xs bg-[#FAF4F6]/50 rounded-2xl border border-dashed border-[#F2E4E8]">
+                      {decidedCount > 0 ? (
+                        <div className="space-y-1.5">
+                          <p className="font-semibold text-emerald-700">Semua insiden telah diselesaikan oleh host ({decidedCount} kasus).</p>
+                          <button
+                            onClick={() => {
+                              setSelectedRecord(null);
+                              setAuditFilter('DECIDED');
+                              setActiveTab('audit');
+                            }}
+                            className="text-[11px] text-[#9E2648] hover:underline font-bold"
+                          >
+                            Lihat hasil keputusan di Audit visual &rarr;
+                          </button>
+                        </div>
+                      ) : (
+                        'Tidak ada insiden yang memerlukan validasi manual saat ini.'
+                      )}
                     </div>
                   ) : (
-                    verifications.slice(0, 5).map((item) => {
+                    activePendingQueue.slice(0, 5).map((item) => {
                       const decision = admittedList[item.id];
                       const isSuccess = item.status === 'PASSED';
                       const isBlocked = item.status === 'SPOOF_FAILED' || item.status === 'VIRTUAL_CAM_BLOCKED';
@@ -1080,7 +1464,7 @@ export default function AdminDashboardPage() {
                   </div>
                   <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-semibold">
                     <span className="w-2 h-2 rounded-full bg-[#12B76A] animate-pulse"></span>
-                    <span>{needReviewCount + spoofCount} kasus perlu tindakan</span>
+                    <span>{activeQueueCount} kasus perlu tindakan</span>
                   </div>
                 </div>
 
@@ -1088,8 +1472,10 @@ export default function AdminDashboardPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
                     <p className="text-xs font-medium text-[#7D5662]">Antrean aktif</p>
-                    <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{needReviewCount + spoofCount}</h3>
-                    <p className="text-[11px] font-medium text-[#9E2648] mt-1">{spoofCount} terdeteksi pelanggaran</p>
+                    <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{activeQueueCount}</h3>
+                    <p className="text-[11px] font-medium text-[#9E2648] mt-1">
+                      {activePendingQueue.filter((v) => v.status === 'SPOOF_FAILED').length} terdeteksi pelanggaran belum diputuskan
+                    </p>
                   </div>
 
                   <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
@@ -1100,31 +1486,85 @@ export default function AdminDashboardPage() {
 
                   <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
                     <p className="text-xs font-medium text-[#7D5662]">Keputusan manual</p>
-                    <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{Object.keys(admittedList).length}</h3>
-                    <p className="text-[11px] font-medium text-gray-400 mt-1">{Object.keys(admittedList).length} tindakan host diambil</p>
+                    <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{decidedCount}</h3>
+                    <p className="text-[11px] font-medium text-gray-400 mt-1">{decidedCount} tindakan host diambil</p>
                   </div>
                 </div>
 
                 {/* Antrean Pemeriksaan Table */}
                 <div className="bg-white p-6 rounded-[28px] border border-[#F0E4E7] shadow-[0_4px_24px_rgba(0,0,0,0.02)] space-y-4">
-                  <div className="flex items-center justify-between pb-3 border-b border-[#F7ECEF]">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#F7ECEF]">
                     <div>
                       <h3 className="text-base font-bold text-[#2B0E17]">Antrean pemeriksaan</h3>
                       <p className="text-xs text-[#7D5662]">Diurutkan berdasarkan waktu masuk data</p>
                     </div>
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-bold border border-[#FDE8B3]">
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      <span>Semua risiko ({verifications.length})</span>
+
+                    {/* Filter Tabs matching count */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        onClick={() => setAuditFilter('ACTIVE')}
+                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                          auditFilter === 'ACTIVE'
+                            ? 'bg-[#8A233E] text-white shadow-sm'
+                            : 'bg-[#FAF4F6] text-[#7D5662] hover:bg-[#F2E4E8]'
+                        }`}
+                      >
+                        Antrean aktif ({activeQueueCount})
+                      </button>
+
+                      <button
+                        onClick={() => setAuditFilter('DECIDED')}
+                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                          auditFilter === 'DECIDED'
+                            ? 'bg-[#12B76A] text-white shadow-sm'
+                            : 'bg-[#FAF4F6] text-[#7D5662] hover:bg-[#F2E4E8]'
+                        }`}
+                      >
+                        Sudah diputuskan ({decidedList.length})
+                      </button>
+
+                      <button
+                        onClick={() => setAuditFilter('ALL_RISK')}
+                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                          auditFilter === 'ALL_RISK'
+                            ? 'bg-[#F04438] text-white shadow-sm'
+                            : 'bg-[#FAF4F6] text-[#7D5662] hover:bg-[#F2E4E8]'
+                        }`}
+                      >
+                        Semua risiko ({auditQueueList.length})
+                      </button>
+
+                      <button
+                        onClick={() => setAuditFilter('ALL')}
+                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                          auditFilter === 'ALL'
+                            ? 'bg-[#2B0E17] text-white shadow-sm'
+                            : 'bg-[#FAF4F6] text-[#7D5662] hover:bg-[#F2E4E8]'
+                        }`}
+                      >
+                        Semua sesi ({totalVerifs})
+                      </button>
+
+                      {decidedList.length > 0 && (
+                        <button
+                          onClick={handleResetDecisions}
+                          title="Kembalikan semua keputusan host ke antrean aktif"
+                          className="px-2.5 py-1.5 rounded-full text-[11px] font-semibold text-gray-500 hover:text-red-600 hover:bg-red-50 border border-dashed border-gray-300 transition-all flex items-center gap-1 ml-1"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          <span>Reset keputusan</span>
+                        </button>
+                      )}
                     </div>
                   </div>
 
                   <div className="space-y-3">
-                    {verifications.length === 0 ? (
+                    {displayedAuditList.length === 0 ? (
                       <div className="p-8 text-center text-gray-400 text-xs">
-                        Tidak ada antrean pemeriksaan.
+                        Tidak ada antrean pemeriksaan pada filter ini.
                       </div>
                     ) : (
-                      verifications.map((item) => {
+                      displayedAuditList.map((item) => {
                         const isBlocked = item.status === 'SPOOF_FAILED' || item.status === 'VIRTUAL_CAM_BLOCKED';
                         const isPassed = item.status === 'PASSED';
                         const decision = admittedList[item.id];
@@ -1222,8 +1662,9 @@ export default function AdminDashboardPage() {
                 </div>
 
                 <button
-                  onClick={() => alert('Laporan riwayat CSV berhasil diekspor!')}
+                  onClick={handleExportCSV}
                   className="px-4 py-2 rounded-full bg-white border border-[#EEDDE2] hover:bg-[#FAF4F6] text-[#9E2648] text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
+                  title="Unduh laporan CSV"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Ekspor laporan</span>
@@ -1506,12 +1947,22 @@ export default function AdminDashboardPage() {
                   </p>
                 </div>
 
-                <button
-                  onClick={() => alert('Mode edit profil dibuka')}
-                  className="px-5 py-2.5 rounded-full bg-white border border-[#EEDDE2] hover:bg-[#FAF4F6] text-[#9E2648] text-xs font-bold shadow-sm transition-all"
-                >
-                  Edit profil
-                </button>
+                <div className="flex items-center gap-2.5">
+                  <button
+                    onClick={handleOpenEditProfile}
+                    className="px-4 py-2.5 rounded-full bg-white border border-[#EEDDE2] hover:bg-[#FAF4F6] text-[#9E2648] text-xs font-bold shadow-sm transition-all"
+                  >
+                    Edit profil
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="px-4 py-2.5 rounded-full bg-[#FAF4F6] hover:bg-[#FEE4E2] text-[#D92D20] border border-[#F2D7DE] text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all"
+                    title="Keluar dari akun admin"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Log out</span>
+                  </button>
+                </div>
               </div>
 
               {/* 2-Column Profil Grid */}
@@ -1521,34 +1972,56 @@ export default function AdminDashboardPage() {
                 <div className="lg:col-span-7 bg-white p-6 sm:p-8 rounded-[28px] border border-[#F0E4E7] shadow-[0_4px_24px_rgba(0,0,0,0.02)] space-y-6">
                   <div className="flex items-center gap-4">
                     <div className="w-14 h-14 rounded-2xl bg-[#8A233E] text-white flex items-center justify-center font-bold text-lg shadow-md">
-                      AR
+                      {getInitials(adminProfile.full_name)}
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-[#2B0E17]">Admin Room</h3>
-                      <p className="text-xs text-[#7D5662]">Host utama</p>
+                      <h3 className="text-lg font-bold text-[#2B0E17]">{adminProfile.full_name}</h3>
+                      <p className="text-xs text-[#7D5662]">{adminProfile.role || 'Host utama'}</p>
                     </div>
                   </div>
 
                   <div className="divide-y divide-[#F7ECEF] text-xs">
                     <div className="py-3 flex justify-between">
                       <span className="text-[#7D5662]">Nama lengkap</span>
-                      <span className="font-semibold text-[#2B0E17]">Admin Room</span>
+                      <span className="font-semibold text-[#2B0E17]">{adminProfile.full_name}</span>
                     </div>
 
                     <div className="py-3 flex justify-between">
                       <span className="text-[#7D5662]">Email</span>
-                      <span className="font-semibold font-mono text-[#2B0E17]">admin@verigate.id</span>
+                      <span className="font-semibold font-mono text-[#2B0E17]">{adminProfile.email}</span>
                     </div>
 
                     <div className="py-3 flex justify-between">
                       <span className="text-[#7D5662]">Peran</span>
-                      <span className="font-semibold text-[#2B0E17]">Host &middot; Administrator</span>
+                      <span className="font-semibold text-[#2B0E17]">{adminProfile.role || 'Host &middot; Administrator'}</span>
                     </div>
 
                     <div className="py-3 flex justify-between">
                       <span className="text-[#7D5662]">Terakhir aktif</span>
-                      <span className="font-semibold text-[#2B0E17]">Hari ini, 10:48</span>
+                      <span className="font-semibold text-[#2B0E17]">
+                        {adminProfile.last_login
+                          ? new Date(adminProfile.last_login).toLocaleString('id-ID', {
+                              dateStyle: 'medium',
+                              timeStyle: 'short',
+                            })
+                          : 'Hari ini'}
+                      </span>
                     </div>
+                  </div>
+
+                  {/* Sesi Administrator & Logout Row */}
+                  <div className="pt-3 border-t border-[#F7ECEF] flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-[#2B0E17]">Sesi Administrator</h4>
+                      <p className="text-[11px] text-[#7D5662]">Keluar dan akhiri sesi login Anda</p>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className="px-4 py-2 rounded-xl bg-[#FEE4E2] hover:bg-[#FCD4D0] text-[#D92D20] text-xs font-bold flex items-center gap-1.5 transition-all border border-[#FECDCA]"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Log out</span>
+                    </button>
                   </div>
                 </div>
 
@@ -1591,6 +2064,78 @@ export default function AdminDashboardPage() {
 
         </main>
       </div>
+
+      {/* Edit Profile Modal */}
+      {isEditingProfile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md bg-white rounded-[28px] p-6 sm:p-8 shadow-2xl border border-[#F0E4E7] relative">
+            <h3 className="text-lg font-bold text-[#2B0E17] mb-1">Edit Profil Administrator</h3>
+            <p className="text-xs text-[#7D5662] mb-5">Perbarui informasi akun administrator di Supabase.</p>
+
+            {profileMessage && (
+              <div className={`p-3 mb-4 rounded-xl text-xs flex items-center gap-2 ${
+                profileMessage.type === 'success' ? 'bg-[#ECFDF3] text-[#027A48] border border-[#A6F4C5]' : 'bg-[#FEE4E2] text-[#D92D20] border border-[#FECDCA]'
+              }`}>
+                <span>{profileMessage.text}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveProfile} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#6B4B55] mb-1.5">Nama Lengkap</label>
+                <input
+                  type="text"
+                  required
+                  value={editFullName}
+                  onChange={(e) => setEditFullName(e.target.value)}
+                  className="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-white text-xs sm:text-sm text-[#2B0E17] focus:outline-none focus:border-[#8A233E]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#6B4B55] mb-1.5">Peran / Role</label>
+                <input
+                  type="text"
+                  required
+                  value={editRole}
+                  onChange={(e) => setEditRole(e.target.value)}
+                  className="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-white text-xs sm:text-sm text-[#2B0E17] focus:outline-none focus:border-[#8A233E]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#6B4B55] mb-1.5">
+                  Kata Sandi Baru <span className="font-normal text-gray-400">(Kosongkan jika tidak diubah)</span>
+                </label>
+                <input
+                  type="password"
+                  value={editPassword}
+                  onChange={(e) => setEditPassword(e.target.value)}
+                  placeholder="Minimal 6 karakter"
+                  className="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-white text-xs sm:text-sm text-[#2B0E17] focus:outline-none focus:border-[#8A233E]"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingProfile(false)}
+                  className="w-1/2 py-3 rounded-2xl font-semibold text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingProfile}
+                  className="w-1/2 py-3 rounded-2xl font-bold text-xs bg-[#8A233E] hover:bg-[#721A31] text-white shadow-md transition-all disabled:opacity-50"
+                >
+                  {isSavingProfile ? 'Menyimpan...' : 'Simpan Perubahan'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Snapshot Modal */}
       {modalSnapshot && (

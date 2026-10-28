@@ -100,3 +100,26 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #6D1E33;
 }
+
+/* Custom Text Selection Highlight Block matching sample (#083CA6) */
+::selection {
+  background-color: #083CA6 !important;
+  color: #ffffff !important;
+}
+
+::-moz-selection {
+  background-color: #083CA6 !important;
+  color: #ffffff !important;
+}
+
+input::selection,
+textarea::selection {
+  background-color: #083CA6 !important;
+  color: #ffffff !important;
+}
+
+input:-webkit-autofill::selection {
+  background-color: #083CA6 !important;
+  color: #ffffff !important;
+}
+

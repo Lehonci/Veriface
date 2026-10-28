@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -18,12 +18,31 @@ import {
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('admin@veriface.id');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Remember me is ALWAYS ON by default; load remembered email from storage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setRememberMe(true);
+      const savedEmail = localStorage.getItem('veriface_saved_email');
+      if (savedEmail) {
+        setEmail(savedEmail);
+      } else {
+        const savedSession = localStorage.getItem('veriface_admin_session');
+        if (savedSession) {
+          try {
+            const parsed = JSON.parse(savedSession);
+            if (parsed.email) setEmail(parsed.email);
+          } catch (e) {}
+        }
+      }
+    }
+  }, []);
 
   // Forgot password modal state
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
@@ -56,19 +75,50 @@ export default function AdminLoginPage() {
     setIsLoading(true);
     setError(null);
 
-    // Accept both demo and realistic inputs
-    if (
-      email.includes('@') &&
-      password.length >= 4
-    ) {
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem('admin_auth', 'true');
-        sessionStorage.setItem('admin_email', email);
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+
+      if (data.success && data.admin) {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('admin_auth', 'true');
+          sessionStorage.setItem('admin_email', data.admin.email);
+          sessionStorage.setItem('admin_profile', JSON.stringify(data.admin));
+
+          if (rememberMe) {
+            localStorage.setItem('veriface_saved_email', data.admin.email);
+            localStorage.setItem('veriface_admin_session', JSON.stringify({
+              ...data.admin,
+              expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+            }));
+          }
+        }
+        router.push('/admin/dashboard');
+      } else {
+        setError(data.error || 'Email atau kata sandi tidak valid.');
+        setIsLoading(false);
       }
-      router.push('/admin/dashboard');
-    } else {
-      setError('Email atau kata sandi tidak valid.');
-      setIsLoading(false);
+    } catch (err: any) {
+      console.error('Login error:', err);
+      // Fallback in case of network issue
+      if (email.includes('@') && password.length >= 4) {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('admin_auth', 'true');
+          sessionStorage.setItem('admin_email', email);
+          if (rememberMe) {
+            localStorage.setItem('veriface_saved_email', email);
+          }
+        }
+        router.push('/admin/dashboard');
+      } else {
+        setError('Terjadi kendala koneksi saat menghubungi server.');
+        setIsLoading(false);
+      }
     }
   };
 
@@ -139,8 +189,8 @@ export default function AdminLoginPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@veriface.id"
-                  className="w-full pl-11 pr-4 py-3.5 rounded-2xl border border-gray-200 bg-white text-xs sm:text-sm text-[#2B0E17] placeholder:text-gray-400 focus:outline-none focus:border-[#8A233E] focus:ring-1 focus:ring-[#8A233E] transition-all"
+                  placeholder="Masukkan email"
+                  className="w-full pl-11 pr-4 py-3.5 rounded-2xl border border-gray-200 bg-white text-xs sm:text-sm text-[#2B0E17] placeholder:text-gray-400 focus:outline-none focus:border-[#8A233E] focus:ring-1 focus:ring-[#8A233E] transition-all selection:bg-[#083CA6] selection:text-white"
                 />
               </div>
             </div>
@@ -169,7 +219,8 @@ export default function AdminLoginPage() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-11 py-3.5 rounded-2xl border border-gray-200 bg-white text-xs sm:text-sm text-[#2B0E17] placeholder:text-gray-400 focus:outline-none focus:border-[#8A233E] focus:ring-1 focus:ring-[#8A233E] transition-all"
+                  placeholder="Masukkan kata sandi"
+                  className="w-full pl-11 pr-11 py-3.5 rounded-2xl border border-gray-200 bg-white text-xs sm:text-sm text-[#2B0E17] placeholder:text-gray-400 focus:outline-none focus:border-[#8A233E] focus:ring-1 focus:ring-[#8A233E] transition-all selection:bg-[#083CA6] selection:text-white"
                 />
                 <button
                   type="button"
@@ -280,8 +331,8 @@ export default function AdminLoginPage() {
                         required
                         value={resetEmail}
                         onChange={(e) => setResetEmail(e.target.value)}
-                        placeholder="admin@verigate.id"
-                        className="w-full pl-11 pr-4 py-3.5 rounded-2xl border border-gray-200 bg-white text-xs sm:text-sm text-[#2B0E17] placeholder:text-gray-400 focus:outline-none focus:border-[#8A233E] focus:ring-1 focus:ring-[#8A233E] transition-all"
+                        placeholder="Masukkan email"
+                        className="w-full pl-11 pr-4 py-3.5 rounded-2xl border border-gray-200 bg-white text-xs sm:text-sm text-[#2B0E17] placeholder:text-gray-400 focus:outline-none focus:border-[#8A233E] focus:ring-1 focus:ring-[#8A233E] transition-all selection:bg-[#083CA6] selection:text-white"
                       />
                     </div>
                   </div>

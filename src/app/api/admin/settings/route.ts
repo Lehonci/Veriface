@@ -39,6 +39,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (isSupabaseServerConfigured && supabaseServer) {
+      if (isActive) {
+        // Set all existing settings to inactive
+        await supabaseServer
+          .from('zoom_settings')
+          .update({ is_active: false })
+          .eq('is_active', true);
+      }
+
+      // Insert without custom string id so Supabase Postgres auto-generates gen_random_uuid()
+      const { data, error } = await supabaseServer
+        .from('zoom_settings')
+        .insert([{
+          meeting_title: meetingTitle || 'Wawancara Kerja Online',
+          zoom_url: zoomUrl,
+          passcode: passcode || '',
+          is_active: Boolean(isActive),
+          updated_at: new Date().toISOString(),
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Supabase zoom_settings insert error:', error);
+        throw error;
+      }
+
+      return NextResponse.json({ success: true, setting: data });
+    }
+
     const newSetting: ZoomSetting = {
       id: `zoom_${Date.now()}`,
       meeting_title: meetingTitle || 'Wawancara Kerja Online',
@@ -49,34 +79,16 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
-    if (isSupabaseServerConfigured && supabaseServer) {
-      if (isActive) {
-        await supabaseServer
-          .from('zoom_settings')
-          .update({ is_active: false })
-          .neq('id', '00000000-0000-0000-0000-000000000000');
-      }
-
-      const { data, error } = await supabaseServer
-        .from('zoom_settings')
-        .insert([newSetting])
-        .select()
-        .single();
-
-      if (error) throw error;
-      return NextResponse.json({ success: true, setting: data });
-    }
-
     if (isActive) {
       mockDB.zoomSettings.forEach((z) => (z.is_active = false));
     }
     mockDB.zoomSettings.unshift(newSetting);
 
     return NextResponse.json({ success: true, setting: newSetting });
-  } catch (error: unknown) {
+  } catch (error: any) {
     console.error('Error saving zoom settings:', error);
     return NextResponse.json(
-      { success: false, message: 'Gagal menyimpan pengaturan Zoom.' },
+      { success: false, message: error?.message || 'Gagal menyimpan pengaturan Zoom.' },
       { status: 500 }
     );
   }
