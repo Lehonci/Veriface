@@ -16,6 +16,9 @@ import {
 } from '@/types';
 import { AlertTriangle } from 'lucide-react';
 
+// 1. IMPORT FUNGSI ONNX ENGINE BARU DI SINI
+import { evaluateVideoFrame } from '@/lib/verifaceEngine';
+
 export default function GatewayPage() {
   const [identity, setIdentity] = useState<ApplicantIdentity>({
     fullName: '',
@@ -115,16 +118,6 @@ export default function GatewayPage() {
           });
         }
       } else {
-        let snapshotBase64: string | null = null;
-        if (videoRef.current) {
-          try {
-            const cropResult = await captureAndCropFaceSnapshot(videoRef.current);
-            snapshotBase64 = cropResult.dataUrl;
-          } catch (e) {
-            console.warn('Snapshot capture failed:', e);
-          }
-        }
-
         const failReason =
           result.metrics.failureReason ||
           'Wajah tidak terdeteksi sebagai objek 3D asli (terindikasi foto/layar).';
@@ -150,6 +143,8 @@ export default function GatewayPage() {
           failureTitle = 'Verifikasi Ditolak: Atribut Kacamata Terdeteksi';
         } else if (failReason.toLowerCase().includes('masker') || failReason.toLowerCase().includes('penutup')) {
           failureTitle = 'Verifikasi Ditolak: Atribut Masker / Penutup Muka Terdeteksi';
+        } else if (failReason.toLowerCase().includes('cahaya') || failReason.toLowerCase().includes('gelap')) {
+          failureTitle = 'Verifikasi Ditolak: Pencahayaan Ruangan Kurang';
         }
 
         setFailureInfo({
@@ -168,7 +163,6 @@ export default function GatewayPage() {
     }
   }
 
-  // Validate email strictly (must contain @ and dot domain, e.g. user@domain.com)
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identity.email.trim());
   const isFullNameValid = identity.fullName.trim().length >= 2;
   const isPositionValid = identity.jobPosition.trim().length >= 2;
@@ -193,7 +187,6 @@ export default function GatewayPage() {
       return;
     }
 
-    // Check if the currently used camera track is actually a virtual camera
     let isVirtual = false;
     let trackLabel = '';
     if (videoRef.current && videoRef.current.srcObject) {
@@ -225,12 +218,53 @@ export default function GatewayPage() {
       return;
     }
 
-    // Warning instead of strict blocking if lighting is low
-    if (luminanceStatus === 'TOO_DARK') {
-      console.warn('Low ambient light detected, proceeding with caution.');
-    }
 
-    startLivenessScan();
+    // -------------------------------------------------------------
+    // 2. INTEGRASI ONNX MODEL BARU (Masuk di sini tanpa ubah UI)
+    // -------------------------------------------------------------
+    if (videoRef.current) {
+      setIsVerifying(true); // Memunculkan efek loading di UI form
+      
+      try {
+        const res = await evaluateVideoFrame(videoRef.current, trackLabel);
+
+        if (res.status === 'PASSED') {
+          // LULUS -> Arahkan ke fungsi sukses bawaan kodemu
+          await handleLivenessComplete({
+            passed: true,
+            metrics: {
+              depthVariance: res.livenessScore || 0.99,
+              luminanceScore: res.luma || 100,
+              confidenceScore: res.livenessScore || 0.99,
+              sampleCount: 1,
+            }
+          });
+        } else {
+          // GAGAL / HOLD MASKER / HOLD CAHAYA -> Arahkan ke fungsi gagal bawaan kodemu
+          await handleLivenessComplete({
+            passed: false,
+            metrics: {
+              depthVariance: res.occlusionScore || res.livenessScore || 0.1,
+              luminanceScore: res.luma || 0,
+              confidenceScore: res.livenessScore || 0.1,
+              sampleCount: 1,
+              failureReason: res.message, // Pesan ini akan otomatis muncul di kotak merah UI
+            }
+          });
+        }
+      } catch (err) {
+        console.error('ONNX Engine Error:', err);
+        setFailureInfo({
+          title: 'Error AI Engine',
+          reason: 'Gagal mengeksekusi model Veriface. Harap periksa konsol browser.',
+        });
+      } finally {
+        setIsVerifying(false);
+      }
+      
+      return; // Berhenti di sini, JANGAN panggil fungsi old (startLivenessScan)
+    }
+    // -------------------------------------------------------------
   };
 
   const handleProceedClick = () => {
@@ -261,7 +295,6 @@ export default function GatewayPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-ambient-maroon text-foreground relative overflow-x-hidden selection:bg-[#7B2E46]/20 selection:text-[#7B2E46]">
-      {/* Background Ambient Glowing Blobs for True Glassmorphism Refraction */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
         <div className="absolute top-[-10%] left-[20%] w-[55vw] h-[55vw] rounded-full bg-[#EBD8C7]/50 blur-[150px] animate-pulse-glow" />
         <div className="absolute top-[35%] right-[-10%] w-[45vw] h-[45vw] rounded-full bg-[#F5E2D3]/40 blur-[140px]" />
@@ -269,11 +302,9 @@ export default function GatewayPage() {
       </div>
 
       <div className="relative z-10 flex flex-col min-h-screen">
-        {/* Floating Capsule Navbar */}
         <Navbar />
 
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 flex flex-col items-center gap-8 sm:gap-10">
-          {/* Centered Hero Section with Inverted Deep Wine & Crimson Headings */}
           <div className="text-center max-w-3xl pt-2 sm:pt-4">
             <h1 className="text-4xl sm:text-6xl font-extrabold text-[#2B0E17] tracking-tight leading-[1.08]">
               Verifikasi identitas.
@@ -288,7 +319,6 @@ export default function GatewayPage() {
             </p>
           </div>
 
-          {/* Virtual Camera Warning Alert */}
           {virtualCamBlocked && (
             <div className="w-full max-w-5xl glass-panel p-5 rounded-2xl border border-rose-400 bg-rose-50/90 shadow-xl animate-fade-in">
               <div className="flex items-start gap-3.5">
@@ -309,11 +339,8 @@ export default function GatewayPage() {
             </div>
           )}
 
-          {/* Main Desktop App Window (Frosted Cream macOS Style Frame) */}
           <div className="w-full max-w-5xl glass-panel rounded-[28px] border border-[#7B2E46]/12 shadow-2xl p-6 sm:p-8 relative overflow-hidden">
-  
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-stretch">
-              {/* Left Column: Form & Stepper (5 Cols) */}
               <div className="lg:col-span-5 flex flex-col justify-between">
                 <IdentityForm
                   identity={identity}
@@ -325,7 +352,6 @@ export default function GatewayPage() {
                 />
               </div>
 
-              {/* Right Column: Prominent Spotlight Camera Viewport (7 Cols) */}
               <div className="lg:col-span-7 flex flex-col justify-between">
                 <CameraView
                   videoRef={videoRef}
@@ -352,7 +378,6 @@ export default function GatewayPage() {
             </div>
           </div>
 
-          {/* Failure Alert Banner if any (aligned precisely with max-w-5xl) */}
           {failureInfo && (
             <div className="w-full max-w-5xl">
               <FailureAlert
@@ -363,11 +388,9 @@ export default function GatewayPage() {
             </div>
           )}
 
-          {/* Success Modal Overlay */}
           {successPayload && <SuccessModal payload={successPayload} />}
         </main>
 
-        {/* Footer */}
         <footer className="w-full py-6 text-center text-xs text-[#7A4B58] border-t border-[#7B2E46]/10 mt-auto">
           <p>
             Copyright &copy; {new Date().getFullYear()}, Key Pick Key Run, All Rights Reserved
