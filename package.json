@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^0.10.14",
+    "@mediapipe/tasks-vision": "^0.10.35",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
     "canvas-confetti": "^1.9.4",
@@ -17,6 +17,7 @@
     "jose": "^5.9.6",
     "lucide-react": "^0.475.0",
     "next": "^16.4.3",
+    "onnxruntime-web": "^1.31.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.15.1",
