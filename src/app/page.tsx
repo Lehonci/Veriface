@@ -15,9 +15,8 @@ import {
   VerificationSuccessPayload,
 } from '@/types';
 import { AlertTriangle } from 'lucide-react';
-
-// 1. IMPORT FUNGSI ONNX ENGINE BARU DI SINI
-import { evaluateVideoFrame } from '@/lib/verifaceEngine';
+import { initVerifaceEngine } from '@/lib/verifaceEngine';
+import { LandmarkPoint } from '@/lib/cv/depthVariance';
 
 export default function GatewayPage() {
   const [identity, setIdentity] = useState<ApplicantIdentity>({
@@ -43,8 +42,11 @@ export default function GatewayPage() {
     startCamera,
   } = useCamera();
 
+  // Prapemuatan model AI ONNX saat halaman dibuka
   useEffect(() => {
-    // Only flag if active streaming video track is virtual
+    initVerifaceEngine().catch((err) => {
+      console.warn('Pre-warming Veriface ONNX Engine in background...', err);
+    });
   }, []);
 
   const {
@@ -62,6 +64,7 @@ export default function GatewayPage() {
     scanProgress,
     startLivenessScan,
     resetScan,
+    latestLandmarks,
   } = useFaceLandmarker({
     videoRef,
     overlayCanvasRef: canvasRef,
@@ -78,14 +81,17 @@ export default function GatewayPage() {
       sampleCount: number;
       failureReason?: string;
     };
+    latestLandmarks?: LandmarkPoint[];
+    snapshotBase64?: string;
   }) {
     setIsVerifying(true);
 
     try {
-      let snapshotBase64: string | null = null;
-      if (videoRef.current) {
+      let snapshotBase64: string | null = result.snapshotBase64 || null;
+      if (!snapshotBase64 && videoRef.current) {
         try {
-          const cropResult = await captureAndCropFaceSnapshot(videoRef.current);
+          const lms = result.latestLandmarks || latestLandmarks;
+          const cropResult = await captureAndCropFaceSnapshot(videoRef.current, lms);
           snapshotBase64 = cropResult.dataUrl;
         } catch (e) {
           console.warn('Snapshot capture failed:', e);
@@ -218,53 +224,8 @@ export default function GatewayPage() {
       return;
     }
 
-
-    // -------------------------------------------------------------
-    // 2. INTEGRASI ONNX MODEL BARU (Masuk di sini tanpa ubah UI)
-    // -------------------------------------------------------------
-    if (videoRef.current) {
-      setIsVerifying(true); // Memunculkan efek loading di UI form
-      
-      try {
-        const res = await evaluateVideoFrame(videoRef.current, trackLabel);
-
-        if (res.status === 'PASSED') {
-          // LULUS -> Arahkan ke fungsi sukses bawaan kodemu
-          await handleLivenessComplete({
-            passed: true,
-            metrics: {
-              depthVariance: res.livenessScore || 0.99,
-              luminanceScore: res.luma || 100,
-              confidenceScore: res.livenessScore || 0.99,
-              sampleCount: 1,
-            }
-          });
-        } else {
-          // GAGAL / HOLD MASKER / HOLD CAHAYA -> Arahkan ke fungsi gagal bawaan kodemu
-          await handleLivenessComplete({
-            passed: false,
-            metrics: {
-              depthVariance: res.occlusionScore || res.livenessScore || 0.1,
-              luminanceScore: res.luma || 0,
-              confidenceScore: res.livenessScore || 0.1,
-              sampleCount: 1,
-              failureReason: res.message, // Pesan ini akan otomatis muncul di kotak merah UI
-            }
-          });
-        }
-      } catch (err) {
-        console.error('ONNX Engine Error:', err);
-        setFailureInfo({
-          title: 'Error AI Engine',
-          reason: 'Gagal mengeksekusi model Veriface. Harap periksa konsol browser.',
-        });
-      } finally {
-        setIsVerifying(false);
-      }
-      
-      return; // Berhenti di sini, JANGAN panggil fungsi old (startLivenessScan)
-    }
-    // -------------------------------------------------------------
+    // Jalankan pemindaian liveness multi-frame MediaPipe & evaluasi ONNX Veriface Model
+    startLivenessScan();
   };
 
   const handleProceedClick = () => {

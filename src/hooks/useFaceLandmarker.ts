@@ -12,6 +12,7 @@ import {
 } from '@/lib/cv/depthVariance';
 import { calculateLuminanceFromVideo, LuminanceResult } from '@/lib/cv/luminance';
 import { checkFacialAccessories, FacialAccessoryCheckResult } from '@/lib/cv/facialAccessories';
+import { evaluateVideoFrame, VerifaceResult } from '@/lib/verifaceEngine';
 
 export interface UseFaceLandmarkerOptions {
   videoRef: React.RefObject<HTMLVideoElement>;
@@ -27,6 +28,7 @@ export interface UseFaceLandmarkerOptions {
       failureReason?: string;
     };
     latestLandmarks: LandmarkPoint[];
+    snapshotBase64?: string;
   }) => void;
 }
 
@@ -219,41 +221,64 @@ export function useFaceLandmarker({
             isScanningRef.current = false;
             setIsScanning(false);
 
-            const aggregated = aggregateMultiFrameLiveness(sampleBufferRef.current);
-            const avgLuminance =
-              luminanceSamplesRef.current.length > 0
-                ? luminanceSamplesRef.current.reduce((a, b) => a + b, 0) /
-                  luminanceSamplesRef.current.length
-                : 60;
+            // Jalankan evaluasi model ONNX MobileNetV3 Multi-Head menggunakan hasil tangkapan MediaPipe
+            (async () => {
+              let evalResult: VerifaceResult | null = null;
+              try {
+                evalResult = await evaluateVideoFrame(video, '', landmarks);
+              } catch (err) {
+                console.warn('Evaluasi model ONNX Veriface gagal, fallback ke kalkulasi variansi:', err);
+              }
 
-            // Check if accessory was detected in >= 25% of scanned frames
-            const accessoryCount = accessoryBufferRef.current.filter((a) => a.hasAccessory).length;
-            const hasPersistentAccessory = accessoryCount / (accessoryBufferRef.current.length || 1) >= 0.25;
-            const mostFrequentReason = accessoryBufferRef.current.find((a) => a.reason)?.reason;
+              const aggregated = aggregateMultiFrameLiveness(sampleBufferRef.current);
+              const avgLuminance =
+                luminanceSamplesRef.current.length > 0
+                  ? luminanceSamplesRef.current.reduce((a, b) => a + b, 0) /
+                    luminanceSamplesRef.current.length
+                  : 60;
 
-            let finalPassed = aggregated.passed;
-            let finalFailureReason = aggregated.primaryFailureReason;
+              // Cek apakah aksesoris terdeteksi konsisten
+              const accessoryCount = accessoryBufferRef.current.filter((a) => a.hasAccessory).length;
+              const hasPersistentAccessory = accessoryCount / (accessoryBufferRef.current.length || 1) >= 0.25;
+              const mostFrequentReason = accessoryBufferRef.current.find((a) => a.reason)?.reason;
 
-            if (hasPersistentAccessory) {
-              finalPassed = false;
-              finalFailureReason =
-                mostFrequentReason ||
-                'Verifikasi ditolak: Terdeteksi atribut pada wajah (kacamata/masker). Wajah harus bebas dari atribut.';
-            }
+              let finalPassed = false;
+              let finalFailureReason: string | undefined = undefined;
 
-            if (onLivenessComplete) {
-              onLivenessComplete({
-                passed: finalPassed,
-                metrics: {
-                  depthVariance: aggregated.medianVariance,
-                  luminanceScore: Math.round(avgLuminance * 10) / 10,
-                  confidenceScore: aggregated.averageConfidence,
-                  sampleCount: sampleBufferRef.current.length,
-                  failureReason: finalFailureReason,
-                },
-                latestLandmarks: landmarks,
-              });
-            }
+              if (evalResult) {
+                if (evalResult.status === 'PASSED') {
+                  finalPassed = true;
+                } else {
+                  finalPassed = false;
+                  finalFailureReason = evalResult.message;
+                }
+              } else {
+                finalPassed = aggregated.passed;
+                finalFailureReason = aggregated.primaryFailureReason;
+              }
+
+              if (hasPersistentAccessory && finalPassed) {
+                finalPassed = false;
+                finalFailureReason =
+                  mostFrequentReason ||
+                  'Verifikasi ditolak: Terdeteksi atribut pada wajah (kacamata/masker). Wajah harus bebas dari atribut.';
+              }
+
+              if (onLivenessComplete) {
+                onLivenessComplete({
+                  passed: finalPassed,
+                  metrics: {
+                    depthVariance: evalResult?.livenessScore ?? aggregated.medianVariance,
+                    luminanceScore: evalResult?.luma ?? Math.round(avgLuminance * 10) / 10,
+                    confidenceScore: evalResult?.livenessScore ?? aggregated.averageConfidence,
+                    sampleCount: sampleBufferRef.current.length,
+                    failureReason: finalPassed ? undefined : finalFailureReason,
+                  },
+                  latestLandmarks: landmarks,
+                  snapshotBase64: evalResult?.snapshotBase64,
+                });
+              }
+            })();
           }
         }
       } else {
