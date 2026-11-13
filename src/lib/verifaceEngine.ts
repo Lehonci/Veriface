@@ -18,7 +18,8 @@ export interface VerifaceResult {
 }
 
 const IMG_SIZE = 224;
-const CROP_MARGIN = 1.4;
+// UBAH 1: Margin diperlebar menjadi 2.2 agar bingkai HP / jari yang memegang HP ikut masuk ke dalam gambar yang dicek AI
+const CROP_MARGIN = 2.2; 
 const MEAN = [0.485, 0.456, 0.406];
 const STD = [0.229, 0.224, 0.225];
 
@@ -171,7 +172,9 @@ export async function evaluateVideoFrame(
   const occlusionProb = sigmoid(occlusionLogit);
 
   const occThreshold = modelConfig?.occlusion_hold_threshold ?? 0.5;
-  const liveThreshold = modelConfig?.threshold ?? 0.5;
+  
+  // UBAH 2: Threshold dinaikkan paksa menjadi 0.85 agar sistem sangat galak terhadap percobaan spoofing
+  const liveThreshold = 0.85;
 
   // Cek Gate Aksesoris (Masker / Kacamata -> HOLD)
   if (occlusionProb >= occThreshold) {
