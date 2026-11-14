@@ -14,7 +14,8 @@ import {
   VerificationSuccessPayload,
 } from '@/types';
 import { AlertTriangle } from 'lucide-react';
-import { evaluateVideoFrame } from '@/lib/verifaceEngine';
+import { initVerifaceEngine } from '@/lib/verifaceEngine';
+import { LandmarkPoint } from '@/lib/cv/depthVariance';
 
 export default function GatewayPage() {
   const [identity, setIdentity] = useState<ApplicantIdentity>({
@@ -54,6 +55,13 @@ export default function GatewayPage() {
     startCamera,
   } = useCamera();
 
+  // Prapemuatan model AI ONNX saat halaman dibuka
+  useEffect(() => {
+    initVerifaceEngine().catch((err) => {
+      console.warn('Pre-warming Veriface ONNX Engine in background...', err);
+    });
+  }, []);
+
   const {
     isModelLoading,
     modelError,
@@ -69,6 +77,7 @@ export default function GatewayPage() {
     scanProgress,
     startLivenessScan,
     resetScan,
+    latestLandmarks,
   } = useFaceLandmarker({
     videoRef,
     overlayCanvasRef: canvasRef,
@@ -85,15 +94,18 @@ export default function GatewayPage() {
       sampleCount: number;
       failureReason?: string;
     };
+    latestLandmarks?: LandmarkPoint[];
+    snapshotBase64?: string;
   }) {
     setIsVerifying(true);
     setFailureInfo(null);
 
     try {
-      let snapshotBase64: string | null = null;
-      if (videoRef.current) {
+      let snapshotBase64: string | null = result.snapshotBase64 || null;
+      if (!snapshotBase64 && videoRef.current) {
         try {
-          const cropResult = await captureAndCropFaceSnapshot(videoRef.current);
+          const lms = result.latestLandmarks || latestLandmarks;
+          const cropResult = await captureAndCropFaceSnapshot(videoRef.current, lms);
           snapshotBase64 = cropResult.dataUrl;
         } catch (e) {
           console.warn('Snapshot capture failed:', e);
@@ -256,7 +268,7 @@ export default function GatewayPage() {
       return;
     }
 
-    setFailureInfo(null);
+    // Jalankan pemindaian liveness multi-frame MediaPipe & evaluasi ONNX Veriface Model
     startLivenessScan();
   };
 
