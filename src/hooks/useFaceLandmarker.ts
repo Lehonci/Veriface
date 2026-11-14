@@ -84,6 +84,26 @@ export function useFaceLandmarker({
   const isScanningRef = useRef(false);
   const luminanceSamplesRef = useRef<number[]>([]);
 
+  // Filter log benign INFO XNNPACK dari MediaPipe WebAssembly agar tidak memicu pop-up merah Next.js Dev Error
+  useEffect(() => {
+    const originalConsoleError = console.error;
+    console.error = (...args: unknown[]) => {
+      const msg = typeof args[0] === 'string' ? args[0] : '';
+      if (
+        msg.includes('INFO: Created TensorFlow Lite XNNPACK delegate') ||
+        msg.includes('XNNPACK delegate for CPU')
+      ) {
+        console.info(...args);
+        return;
+      }
+      originalConsoleError.apply(console, args);
+    };
+
+    return () => {
+      console.error = originalConsoleError;
+    };
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 

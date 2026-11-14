@@ -213,7 +213,7 @@ export default function AdminLoginPage() {
 
       {/* Footer copyright */}
       <footer className="text-center text-xs text-[#721A31]">
-        Copyright &copy; {new Date().getFullYear()}, Key Pick Key Run, All Rights Reserved
+        Copyright &copy; {new Date().getFullYear()}, Veriface, All Rights Reserved
       </footer>
 
       {/* Forgot Password Modal Dialog */}
@@ -280,7 +280,7 @@ export default function AdminLoginPage() {
                         required
                         value={resetEmail}
                         onChange={(e) => setResetEmail(e.target.value)}
-                        placeholder="admin@verigate.id"
+                        placeholder="admin@veriface.id"
                         className="w-full pl-11 pr-4 py-3.5 rounded-2xl border border-gray-200 bg-white text-xs sm:text-sm text-[#2B0E17] placeholder:text-gray-400 focus:outline-none focus:border-[#8A233E] focus:ring-1 focus:ring-[#8A233E] transition-all"
                       />
                     </div>

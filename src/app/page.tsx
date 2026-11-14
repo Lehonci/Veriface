@@ -192,6 +192,17 @@ export default function GatewayPage() {
       alert('Harap isi Posisi yang Dilamar');
       return;
     }
+    if (hasAccessory) {
+      alert(
+        accessoryReason ||
+        'Terdeteksi atribut pada wajah (kacamata atau masker). Harap lepas atribut terlebih dahulu untuk melanjutkan pemindaian.'
+      );
+      return;
+    }
+    if (!faceDetected) {
+      alert('Wajah belum terdeteksi. Posisikan wajah Anda di dalam area panduan kamera.');
+      return;
+    }
 
     let isVirtual = false;
     let trackLabel = '';
@@ -309,7 +320,11 @@ export default function GatewayPage() {
                   disabled={isScanning || isVerifying || Boolean(successPayload)}
                   onProceed={handleProceedClick}
                   isStreaming={isStreaming}
-                  canProceed={isFormValid}
+                  canProceed={isFormValid && (!isStreaming || (!hasAccessory && faceDetected))}
+                  isScanning={isScanning || isVerifying}
+                  hasAccessory={hasAccessory}
+                  accessoryReason={accessoryReason}
+                  faceDetected={faceDetected}
                 />
               </div>
 
@@ -332,7 +347,6 @@ export default function GatewayPage() {
                   scanProgress={scanProgress}
                   errorMessage={cameraError || modelError}
                   onStartCamera={startCamera}
-                  onStartScan={handleStartVerification}
                   canStartScan={isFormValid}
                 />
               </div>
@@ -354,7 +368,7 @@ export default function GatewayPage() {
 
         <footer className="w-full py-6 text-center text-xs text-[#7A4B58] border-t border-[#7B2E46]/10 mt-auto">
           <p>
-            Copyright &copy; {new Date().getFullYear()}, Key Pick Key Run, All Rights Reserved
+            Copyright &copy; {new Date().getFullYear()}, Veriface, All Rights Reserved
           </p>
         </footer>
       </div>

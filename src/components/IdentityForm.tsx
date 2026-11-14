@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import { ApplicantIdentity } from '@/types';
 
 interface IdentityFormProps {
@@ -10,6 +10,10 @@ interface IdentityFormProps {
   isStreaming?: boolean;
   canProceed?: boolean;
   isEmailValid?: boolean;
+  isScanning?: boolean;
+  hasAccessory?: boolean;
+  accessoryReason?: string | null;
+  faceDetected?: boolean;
 }
 
 export const IdentityForm: React.FC<IdentityFormProps> = ({
@@ -19,7 +23,11 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
   onProceed,
   isStreaming = false,
   canProceed = false,
-  isEmailValid = identity.email?.toLowerCase().endsWith('@gmail.com')
+  isEmailValid = identity.email?.toLowerCase().endsWith('@gmail.com'),
+  isScanning = false,
+  hasAccessory = false,
+  accessoryReason = null,
+  faceDetected = false,
 }) => {
   return (
     <div className="flex flex-col h-full justify-between">
@@ -131,15 +139,46 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
       {/* Action CTA Button */}
       <div className="mt-8 space-y-3">
         {onProceed && (
-          <button
-            type="button"
-            onClick={onProceed}
-            disabled={!canProceed || disabled || !isEmailValid}
-            className="w-full py-3.5 px-6 rounded-full font-semibold text-xs sm:text-sm text-white bg-[#7B2E46] hover:bg-[#682238] transition-all shadow-lg shadow-[#7B2E46]/25 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed active:scale-98"
-          >
-            <span>{isStreaming ? 'Mulai Pemindaian Liveness' : 'Lanjut ke pemindaian'}</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={onProceed}
+              disabled={!canProceed || disabled || !isEmailValid || isScanning || (isStreaming && hasAccessory)}
+              className={`w-full py-3.5 px-6 rounded-full font-semibold text-xs sm:text-sm text-white transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 ${
+                isStreaming && hasAccessory
+                  ? 'bg-[#991B1B] hover:bg-[#7F1D1D] shadow-[#991B1B]/25'
+                  : 'bg-[#7B2E46] hover:bg-[#682238] shadow-[#7B2E46]/25'
+              }`}
+            >
+              {isScanning ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Memindai Liveness (2-3 detik)...</span>
+                </>
+              ) : isStreaming ? (
+                hasAccessory ? (
+                  <>
+                    <AlertCircle className="w-4 h-4" />
+                    <span>Lepas Kacamata / Masker</span>
+                  </>
+                ) : !faceDetected ? (
+                  <>
+                    <span>Posisikan Wajah ke Kamera</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Mulai Pemindaian Liveness</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )
+              ) : (
+                <>
+                  <span>Lanjut ke pemindaian</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </>
         )}
       </div>
     </div>

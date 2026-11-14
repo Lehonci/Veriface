@@ -53,14 +53,14 @@ export const SuccessModal: React.FC<SuccessModalProps> = ({ payload }) => {
 
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-semibold mb-3">
           <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Biometrik 3D Terverifikasi Asli</span>
+          <span>Otentikasi Biometrik Valid</span>
         </div>
 
         <h3 className="text-xl sm:text-2xl font-bold text-[#2B0E17] mb-2 tracking-tight">
           Verifikasi Identitas Berhasil!
         </h3>
         <p className="text-xs sm:text-sm text-[#6B3B49] mb-6 max-w-sm mx-auto font-medium">
-          Anda telah lolos uji *liveness* biometrik pasif dan diizinkan masuk ke ruang wawancara resmi.
+          Data biometrik Anda telah terkonfirmasi. Anda kini dapat mengakses ruang wawancara.
         </p>
 
         <div className="p-4 rounded-2xl bg-[#F7EFE8] border border-[#7B2E46]/15 text-left mb-6">

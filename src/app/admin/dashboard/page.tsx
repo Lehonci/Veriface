@@ -38,6 +38,10 @@ import {
   MoreHorizontal,
   ChevronLeft,
   Trash2,
+  ChevronDown,
+  Calendar,
+  Laptop,
+  RotateCcw,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -47,6 +51,155 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+
+function formatNotificationDesc(v: VerificationRecord): string {
+  if (v.status === 'PASSED') {
+    const conf = Math.round((v.confidence_score || 0.95) * 100);
+    return `Lolos verifikasi liveness (${conf}% confidence)`;
+  }
+  if (v.status === 'VIRTUAL_CAM_BLOCKED') {
+    return 'Kamera virtual (OBS/ManyCam) terdeteksi';
+  }
+  if (v.status === 'SPOOF_FAILED') {
+    return v.failure_reason || 'Terindikasi foto cetak / layar perangkat';
+  }
+  return v.failure_reason || 'Verifikasi gagal';
+}
+
+function formatNotificationTime(isoString?: string): string {
+  if (!isoString) return 'Baru saja';
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return 'Baru saja';
+    const hours = String(d.getHours()).padStart(2, '0');
+    const mins = String(d.getMinutes()).padStart(2, '0');
+    const secs = String(d.getSeconds()).padStart(2, '0');
+    return `${hours}:${mins}:${secs}`;
+  } catch {
+    return 'Baru saja';
+  }
+}
+
+function getNotificationType(status: string): 'passed' | 'blocked' {
+  if (status === 'PASSED') return 'passed';
+  return 'blocked';
+}
+
+interface DropdownOption<T extends string> {
+  value: T;
+  label: string;
+  icon?: React.ReactNode;
+}
+
+interface CustomDropdownProps<T extends string> {
+  value: T;
+  onChange: (val: T) => void;
+  options: DropdownOption<T>[];
+  icon?: React.ReactNode;
+  ariaLabel?: string;
+  className?: string;
+}
+
+function CustomDropdown<T extends string>({
+  value,
+  onChange,
+  options,
+  icon,
+  ariaLabel,
+  className = '',
+}: CustomDropdownProps<T>) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+  const selectedOption = options.find((o) => o.value === value) || options[0];
+  const isFiltered = value !== 'ALL';
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false);
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
+  return (
+    <div className={`relative ${className}`} ref={dropdownRef}>
+      <button
+        type="button"
+        aria-label={ariaLabel || selectedOption?.label}
+        onClick={() => setIsOpen((prev) => !prev)}
+        className={`h-9 px-3.5 rounded-xl text-xs font-medium transition-all duration-200 flex items-center justify-between gap-2.5 border select-none ${
+          isFiltered
+            ? 'bg-[#FBECEF] text-[#9E2648] border-[#9E2648]/40 shadow-sm font-semibold'
+            : 'bg-white text-[#2B0E17] border-gray-200 hover:border-[#9E2648]/30 hover:bg-[#FAF4F6]'
+        }`}
+      >
+        <div className="flex items-center gap-1.5 whitespace-nowrap">
+          {icon && (
+            <span className={isFiltered ? 'text-[#9E2648]' : 'text-gray-400'}>
+              {icon}
+            </span>
+          )}
+          <span>{selectedOption?.label}</span>
+        </div>
+        <ChevronDown
+          className={`w-3.5 h-3.5 transition-transform duration-200 shrink-0 ${
+            isOpen ? 'rotate-180 text-[#9E2648]' : 'text-gray-400'
+          }`}
+        />
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-1.5 z-50 min-w-[170px] w-max max-w-[240px] bg-white rounded-2xl border border-[#F2E4E8] shadow-[0_12px_32px_rgba(43,14,23,0.12)] p-1.5 backdrop-blur-lg animate-in fade-in zoom-in-95 duration-150">
+          <div className="space-y-0.5">
+            {options.map((opt) => {
+              const isSelected = opt.value === value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.value);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-xs transition-all text-left select-none ${
+                    isSelected
+                      ? 'bg-[#FBECEF] text-[#9E2648] font-semibold'
+                      : 'text-[#5A3843] hover:bg-[#FAF4F6] hover:text-[#2B0E17]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {opt.icon && (
+                      <span className={isSelected ? 'text-[#9E2648]' : 'text-gray-400'}>
+                        {opt.icon}
+                      </span>
+                    )}
+                    <span>{opt.label}</span>
+                  </div>
+                  {isSelected && (
+                    <Check className="w-3.5 h-3.5 text-[#9E2648] stroke-[2.5] shrink-0" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -59,9 +212,18 @@ export default function AdminDashboardPage() {
   const [admittedList, setAdmittedList] = useState<Record<string, 'ADMITTED' | 'REMOVED'>>({});
   const [modalSnapshot, setModalSnapshot] = useState<string | null>(null);
 
-  // Notification state
+  // Real-time Notification state
   const [showNotificationModal, setShowNotificationModal] = useState<boolean>(false);
-  const [notificationsRead, setNotificationsRead] = useState<boolean>(false);
+  const [notificationsRead, setNotificationsRead] = useState<boolean>(true);
+  const [unreadIds, setUnreadIds] = useState<Set<string>>(new Set());
+  const [toastNotification, setToastNotification] = useState<{
+    id: string;
+    name: string;
+    desc: string;
+    time: string;
+    type: 'passed' | 'blocked';
+    record: VerificationRecord;
+  } | null>(null);
 
   // Settings State matching Figma Version 44
   const [sessionName, setSessionName] = useState('Interview Batch Juni 2026');
@@ -73,7 +235,9 @@ export default function AdminDashboardPage() {
   const [saveSettingsSuccess, setSaveSettingsSuccess] = useState(false);
 
   // History Filter State
-  const [historyStatusFilter, setHistoryStatusFilter] = useState<'ALL' | 'PASSED' | 'FAILED' | 'REVIEW'>('ALL');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'ALL' | 'PASSED' | 'FAILED'>('ALL');
+  const [historyDateFilter, setHistoryDateFilter] = useState<'ALL' | 'TODAY' | '7DAYS' | '30DAYS'>('ALL');
+  const [historyDeviceFilter, setHistoryDeviceFilter] = useState<'ALL' | 'INTERNAL' | 'EXTERNAL'>('ALL');
   const [historySearchQuery, setHistorySearchQuery] = useState('');
 
   // Chart Time Range Filter: 'today' | '7days' | '30days'
@@ -141,7 +305,70 @@ export default function AdminDashboardPage() {
     }
   }, [isAuthenticated, fetchVerifications]);
 
-  // Realtime subscription
+  // Audio chime generator using Web Audio API
+  const playNotificationChime = useCallback(() => {
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.12); // A5
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+    } catch {
+      // Audio playback might require user interaction in some browsers
+    }
+  }, []);
+
+  // Handler for incoming verification record (real-time websocket or polling)
+  const handleIncomingRecord = useCallback(
+    (newRecord: VerificationRecord) => {
+      setVerifications((prev) => {
+        if (prev.some((v) => v.id === newRecord.id)) return prev;
+        return [newRecord, ...prev];
+      });
+
+      setSelectedRecord((prev) => prev || newRecord);
+
+      const timeStr = formatNotificationTime(newRecord.created_at);
+      const descStr = formatNotificationDesc(newRecord);
+      const typeStr = getNotificationType(newRecord.status);
+
+      setUnreadIds((prev) => new Set(prev).add(newRecord.id));
+      setNotificationsRead(false);
+      setToastNotification({
+        id: newRecord.id,
+        name: newRecord.full_name,
+        desc: descStr,
+        time: timeStr,
+        type: typeStr,
+        record: newRecord,
+      });
+
+      playNotificationChime();
+    },
+    [playNotificationChime]
+  );
+
+  // Auto-dismiss floating toast after 6 seconds
+  useEffect(() => {
+    if (!toastNotification) return;
+    const timer = setTimeout(() => {
+      setToastNotification(null);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [toastNotification]);
+
+  // Realtime subscription via Supabase WebSocket
   useEffect(() => {
     if (!isAuthenticated || !isSupabaseConfigured || !supabase) return;
 
@@ -152,8 +379,7 @@ export default function AdminDashboardPage() {
         { event: 'INSERT', schema: 'public', table: 'verifications' },
         (payload) => {
           const newRecord = payload.new as VerificationRecord;
-          setVerifications((prev) => [newRecord, ...prev]);
-          setSelectedRecord(newRecord);
+          handleIncomingRecord(newRecord);
         }
       )
       .subscribe();
@@ -161,7 +387,36 @@ export default function AdminDashboardPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, handleIncomingRecord]);
+
+  // Polling fallback (menjamin pembaruan real-time bekerja mulus bahkan dalam mode lokal / in-memory DB)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/admin/verifications?status=ALL&_t=${Date.now()}`, { cache: 'no-store' });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.verifications)) {
+          setVerifications((prev) => {
+            const existingIds = new Set(prev.map((v) => v.id));
+            const newIncoming = (data.verifications as VerificationRecord[]).filter((v) => !existingIds.has(v.id));
+            if (newIncoming.length > 0) {
+              newIncoming.forEach((rec) => {
+                handleIncomingRecord(rec);
+              });
+              return [...newIncoming, ...prev];
+            }
+            return prev;
+          });
+        }
+      } catch {
+        // Silently ignore background polling exceptions
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated, handleIncomingRecord]);
 
   // Handle Save Settings
   const handleSaveSettings = async () => {
@@ -188,11 +443,17 @@ export default function AdminDashboardPage() {
   // Dynamic KPI calculated purely from live database records
   const totalVerifs = verifications.length;
   const passedCount = verifications.filter((v) => v.status === 'PASSED').length;
-  const spoofCount = verifications.filter((v) => v.status === 'SPOOF_FAILED').length;
-  const needReviewCount = verifications.filter((v) => v.status === 'VIRTUAL_CAM_BLOCKED' || v.status === 'POOR_LIGHTING').length;
+  const failedCount = verifications.filter((v) => v.status !== 'PASSED').length;
   const passRate = totalVerifs > 0 ? ((passedCount / totalVerifs) * 100).toFixed(1) : '0';
-  const needReviewRate = totalVerifs > 0 ? ((needReviewCount / totalVerifs) * 100).toFixed(1) : '0';
-  const spoofRate = totalVerifs > 0 ? ((spoofCount / totalVerifs) * 100).toFixed(1) : '0';
+  const failRate = totalVerifs > 0 ? ((failedCount / totalVerifs) * 100).toFixed(1) : '0';
+  const avgConfidence =
+    totalVerifs > 0
+      ? Math.round(
+          (verifications.reduce((acc, v) => acc + (v.confidence_score || 0.95), 0) /
+            totalVerifs) *
+            100
+        )
+      : 95;
 
   // Calculate chart dynamically from verifications created_at based on chartTimeRange
   const daysOfWeek = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
@@ -277,26 +538,129 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const notificationsList = [
-    { id: 1, name: 'Nadia Rahmawati', desc: 'Depth variance rendah', time: '10:42:18 - REG-24031', type: 'warning' },
-    { id: 2, name: 'Rizky Aditya', desc: 'Virtual camera terdeteksi', time: '10:38:51 - REG-24079', type: 'blocked' },
-    { id: 3, name: 'Aulia Putri Maharani', desc: 'Luminance di bawah batas', time: '10:31:06 - REG-24074', type: 'warning' },
-  ];
+  const notificationsList = verifications.map((v) => ({
+    id: v.id,
+    name: v.full_name,
+    desc: formatNotificationDesc(v),
+    time: `${formatNotificationTime(v.created_at)} - ${v.job_position || 'Pelamar'}`,
+    type: getNotificationType(v.status),
+    record: v,
+    isUnread: unreadIds.has(v.id),
+  }));
 
   // Filtered History list
   const filteredHistory = verifications.filter((item) => {
-    if (historySearchQuery) {
-      const q = historySearchQuery.toLowerCase();
-      const matchName = item.full_name.toLowerCase().includes(q);
-      const matchEmail = item.email.toLowerCase().includes(q);
-      const matchPos = item.job_position.toLowerCase().includes(q);
-      if (!matchName && !matchEmail && !matchPos) return false;
+    // 1. Pencarian teks (Nama, Email, Posisi, ID, Alasan)
+    if (historySearchQuery.trim()) {
+      const q = historySearchQuery.toLowerCase().trim();
+      const matchName = (item.full_name || '').toLowerCase().includes(q);
+      const matchEmail = (item.email || '').toLowerCase().includes(q);
+      const matchPos = (item.job_position || item.jobPosition || '').toLowerCase().includes(q);
+      const matchId = (item.id || '').toLowerCase().includes(q);
+      const matchReason = (item.failure_reason || '').toLowerCase().includes(q);
+      if (!matchName && !matchEmail && !matchPos && !matchId && !matchReason) return false;
     }
-    if (historyStatusFilter === 'PASSED') return item.status === 'PASSED';
-    if (historyStatusFilter === 'FAILED') return item.status === 'SPOOF_FAILED' || item.status === 'VIRTUAL_CAM_BLOCKED';
-    if (historyStatusFilter === 'REVIEW') return item.status === 'POOR_LIGHTING';
+
+    // 2. Filter Status: Berhasil vs Gagal (tidak ada lagi "perlu ditinjau")
+    if (historyStatusFilter === 'PASSED') {
+      if (item.status !== 'PASSED') return false;
+    } else if (historyStatusFilter === 'FAILED') {
+      if (item.status === 'PASSED') return false;
+    }
+
+    // 3. Filter Tanggal: Semua, Hari ini, 7 hari, 30 hari
+    if (historyDateFilter !== 'ALL') {
+      if (!item.created_at) return false;
+      const itemDate = new Date(item.created_at);
+      const now = new Date();
+
+      if (historyDateFilter === 'TODAY') {
+        const isSameDay =
+          itemDate.getDate() === now.getDate() &&
+          itemDate.getMonth() === now.getMonth() &&
+          itemDate.getFullYear() === now.getFullYear();
+        if (!isSameDay) return false;
+      } else if (historyDateFilter === '7DAYS') {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(now.getDate() - 7);
+        sevenDaysAgo.setHours(0, 0, 0, 0);
+        if (itemDate < sevenDaysAgo) return false;
+      } else if (historyDateFilter === '30DAYS') {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(now.getDate() - 30);
+        thirtyDaysAgo.setHours(0, 0, 0, 0);
+        if (itemDate < thirtyDaysAgo) return false;
+      }
+    }
+
+    // 4. Filter Perangkat: Webcam Internal vs Eksternal USB / Virtual
+    if (historyDeviceFilter !== 'ALL') {
+      const isExternalOrVirtual =
+        item.status === 'VIRTUAL_CAM_BLOCKED' ||
+        Boolean(item.failure_reason && /kamera virtual|virtual|eksternal|usb|obs|manycam/i.test(item.failure_reason)) ||
+        Boolean(item.user_agent && /obs|vcam|manycam|droidcam|iriun/i.test(item.user_agent));
+
+      if (historyDeviceFilter === 'INTERNAL') {
+        if (isExternalOrVirtual) return false;
+      } else if (historyDeviceFilter === 'EXTERNAL') {
+        if (!isExternalOrVirtual) return false;
+      }
+    }
+
     return true;
   });
+
+  const hasActiveHistoryFilter =
+    historyStatusFilter !== 'ALL' ||
+    historyDateFilter !== 'ALL' ||
+    historyDeviceFilter !== 'ALL' ||
+    historySearchQuery.trim() !== '';
+
+  const resetHistoryFilters = () => {
+    setHistoryStatusFilter('ALL');
+    setHistoryDateFilter('ALL');
+    setHistoryDeviceFilter('ALL');
+    setHistorySearchQuery('');
+  };
+
+  const handleExportCSV = () => {
+    if (filteredHistory.length === 0) {
+      alert('Tidak ada data riwayat yang dapat diekspor.');
+      return;
+    }
+    const headers = [
+      'ID',
+      'Nama Lengkap',
+      'Email',
+      'Posisi',
+      'Status',
+      'Keterangan',
+      'Confidence Score',
+      'Perangkat / User Agent',
+      'Waktu Verifikasi',
+    ];
+    const rows = filteredHistory.map((item) => [
+      `"${item.id}"`,
+      `"${(item.full_name || '').replace(/"/g, '""')}"`,
+      `"${(item.email || '').replace(/"/g, '""')}"`,
+      `"${(item.job_position || item.jobPosition || '').replace(/"/g, '""')}"`,
+      item.status === 'PASSED' ? 'Berhasil' : 'Verifikasi Gagal',
+      `"${(item.failure_reason || (item.status === 'PASSED' ? 'Liveness tervalidasi' : '-')).replace(/"/g, '""')}"`,
+      item.confidence_score ? `${Math.round(item.confidence_score * 100)}%` : '-',
+      `"${(item.user_agent || 'Web Browser').replace(/"/g, '""')}"`,
+      `"${new Date(item.created_at).toLocaleString('id-ID')}"`,
+    ]);
+    const csvContent =
+      'data:text/csv;charset=utf-8,\uFEFF' +
+      [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `veriface_riwayat_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   if (!isAuthenticated) {
     return (
@@ -322,7 +686,7 @@ export default function AdminDashboardPage() {
                 <ScanFace className="w-6 h-6" />
               </div>
               <div>
-                <h2 className="text-lg font-bold tracking-tight text-[#2B0E17]">VeriGate</h2>
+                <h2 className="text-lg font-bold tracking-tight text-[#2B0E17]">Veriface</h2>
                 <p className="text-[10px] tracking-widest uppercase font-semibold text-[#8C3A50]">Identity System</p>
               </div>
             </div>
@@ -361,7 +725,7 @@ export default function AdminDashboardPage() {
                   <span>Audit visual</span>
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#F4DCE1] text-[#9E2648]">
-                  {needReviewCount + spoofCount}
+                  {failedCount}
                 </span>
               </button>
 
@@ -449,45 +813,90 @@ export default function AdminDashboardPage() {
                 <button
                   onClick={() => setShowNotificationModal(!showNotificationModal)}
                   className="p-2.5 rounded-full bg-white border border-[#EEDDE2] text-[#6B4B55] hover:text-[#9E2648] hover:bg-[#FAF4F6] shadow-sm transition-all relative"
+                  title="Notifikasi"
                 >
                   <Bell className="w-4 h-4" />
-                  {!notificationsRead && (
-                    <span className="w-2 h-2 rounded-full bg-[#9E2648] absolute top-2 right-2 animate-pulse"></span>
+                  {!notificationsRead && unreadIds.size > 0 && (
+                    <span className="min-w-4 h-4 px-1 rounded-full bg-[#9E2648] text-white text-[9px] font-bold absolute -top-1 -right-1 flex items-center justify-center animate-pulse shadow-sm">
+                      {unreadIds.size > 9 ? '9+' : unreadIds.size}
+                    </span>
                   )}
                 </button>
 
                 {/* Notification Dropdown Panel matching Figma Version 44 */}
                 {showNotificationModal && (
-                  <div className="absolute right-0 top-12 w-80 bg-white rounded-3xl p-5 shadow-2xl border border-[#F0E4E7] z-50 animate-fade-in">
+                  <div className="absolute right-0 top-12 w-88 bg-white rounded-3xl p-5 shadow-2xl border border-[#F0E4E7] z-50 animate-fade-in">
                     <div className="flex items-center justify-between pb-3 border-b border-[#F7ECEF]">
                       <div>
-                        <h4 className="text-sm font-bold text-[#2B0E17]">Notifikasi</h4>
-                        <p className="text-[11px] text-[#7D5662]">3 pembaruan terbaru</p>
+                        <h4 className="text-sm font-bold text-[#2B0E17]">Notifikasi Real-time</h4>
+                        <p className="text-[11px] text-[#7D5662]">
+                          {notificationsList.length > 0
+                            ? `${notificationsList.length} aktivitas verifikasi`
+                            : 'Belum ada aktivitas'}
+                        </p>
                       </div>
-                      <button
-                        onClick={() => setNotificationsRead(true)}
-                        className="text-[11px] font-semibold text-[#9E2648] hover:underline"
-                      >
-                        Tandai dibaca
-                      </button>
+                      {unreadIds.size > 0 && (
+                        <button
+                          onClick={() => {
+                            setNotificationsRead(true);
+                            setUnreadIds(new Set());
+                          }}
+                          className="text-[11px] font-semibold text-[#9E2648] hover:underline"
+                        >
+                          Tandai dibaca
+                        </button>
+                      )}
                     </div>
 
-                    <div className="mt-3 space-y-3">
-                      {notificationsList.map((n) => (
-                        <div key={n.id} className="flex items-start gap-3 p-2 rounded-xl hover:bg-[#FAF4F6] transition-colors relative">
-                          <div className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${
-                            n.type === 'blocked' ? 'bg-[#FEE4E2] text-[#F04438]' : 'bg-[#FFF8E6] text-[#F79009]'
-                          }`}>
-                            {n.type === 'blocked' ? <ShieldCheck className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <h5 className="text-xs font-bold text-[#2B0E17] truncate">{n.name}</h5>
-                            <p className="text-[11px] text-[#7D5662] truncate">{n.desc}</p>
-                            <span className="text-[10px] text-gray-400 font-mono mt-0.5 block">{n.time}</span>
-                          </div>
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#9E2648] shrink-0 mt-1"></span>
+                    <div className="mt-3 space-y-2 max-h-80 overflow-y-auto pr-1">
+                      {notificationsList.length === 0 ? (
+                        <div className="py-8 text-center text-xs text-[#7D5662]">
+                          Belum ada aktivitas verifikasi baru.
                         </div>
-                      ))}
+                      ) : (
+                        notificationsList.slice(0, 10).map((n) => (
+                          <div
+                            key={n.id}
+                            onClick={() => {
+                              setSelectedRecord(n.record);
+                              setActiveTab('audit');
+                              setShowNotificationModal(false);
+                              setUnreadIds((prev) => {
+                                const next = new Set(prev);
+                                next.delete(n.id);
+                                return next;
+                              });
+                            }}
+                            className="flex items-start gap-3 p-2.5 rounded-2xl hover:bg-[#FAF4F6] transition-colors cursor-pointer relative group"
+                          >
+                            <div
+                              className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${
+                                n.type === 'passed'
+                                  ? 'bg-[#EBF7EE] text-[#15803D]'
+                                  : n.type === 'blocked'
+                                  ? 'bg-[#FEE4E2] text-[#F04438]'
+                                  : 'bg-[#FFF8E6] text-[#F79009]'
+                              }`}
+                            >
+                              {n.type === 'passed' ? (
+                                <CheckCircle2 className="w-4 h-4" />
+                              ) : n.type === 'blocked' ? (
+                                <ShieldCheck className="w-4 h-4" />
+                              ) : (
+                                <AlertTriangle className="w-4 h-4" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <h5 className="text-xs font-bold text-[#2B0E17] truncate">{n.name}</h5>
+                              <p className="text-[11px] text-[#7D5662] truncate">{n.desc}</p>
+                              <span className="text-[10px] text-gray-400 font-mono mt-0.5 block">{n.time}</span>
+                            </div>
+                            {n.isUnread && (
+                              <span className="w-2 h-2 rounded-full bg-[#9E2648] shrink-0 mt-1.5 animate-pulse"></span>
+                            )}
+                          </div>
+                        ))
+                      )}
                     </div>
 
                     <button
@@ -538,7 +947,7 @@ export default function AdminDashboardPage() {
                   <div>
                     <p className="text-xs font-medium text-[#7D5662]">Total verifikasi</p>
                     <h3 className="text-2xl font-black text-[#2B0E17] mt-0.5">{totalVerifs.toLocaleString('id-ID')}</h3>
-                    <p className="text-[11px] font-medium text-[#9E2648] mt-0.5">+12,4% dari kemarin</p>
+                    <p className="text-[11px] font-medium text-[#9E2648] mt-0.5">{totalVerifs} seluruh peserta</p>
                   </div>
                 </div>
 
@@ -547,20 +956,9 @@ export default function AdminDashboardPage() {
                     <CheckCircle2 className="w-6 h-6" />
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-[#7D5662]">Berhasil</p>
+                    <p className="text-xs font-medium text-[#7D5662]">Berhasil lolos</p>
                     <h3 className="text-2xl font-black text-[#2B0E17] mt-0.5">{passedCount.toLocaleString('id-ID')}</h3>
                     <p className="text-[11px] font-medium text-[#12B76A] mt-0.5">{passRate}% success rate</p>
-                  </div>
-                </div>
-
-                <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-[#FFF8E6] text-[#F79009] flex items-center justify-center shrink-0">
-                    <AlertTriangle className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-[#7D5662]">Perlu ditinjau</p>
-                    <h3 className="text-2xl font-black text-[#2B0E17] mt-0.5">{needReviewCount}</h3>
-                    <p className="text-[11px] font-medium text-[#F79009] mt-0.5">{needReviewCount} kasus</p>
                   </div>
                 </div>
 
@@ -569,9 +967,20 @@ export default function AdminDashboardPage() {
                     <ShieldCheck className="w-6 h-6" />
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-[#7D5662]">Diblokir</p>
-                    <h3 className="text-2xl font-black text-[#2B0E17] mt-0.5">{spoofCount}</h3>
-                    <p className="text-[11px] font-medium text-[#F04438] mt-0.5">{spoofRate}% dari total</p>
+                    <p className="text-xs font-medium text-[#7D5662]">Verifikasi gagal</p>
+                    <h3 className="text-2xl font-black text-[#2B0E17] mt-0.5">{failedCount.toLocaleString('id-ID')}</h3>
+                    <p className="text-[11px] font-medium text-[#F04438] mt-0.5">{failRate}% dari total</p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-[#FAF0F2] text-[#9E2648] flex items-center justify-center shrink-0">
+                    <Sparkles className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-[#7D5662]">Rata-rata akurasi</p>
+                    <h3 className="text-2xl font-black text-[#2B0E17] mt-0.5">{avgConfidence}%</h3>
+                    <p className="text-[11px] font-medium text-[#9E2648] mt-0.5">Model liveness ONNX</p>
                   </div>
                 </div>
               </div>
@@ -689,7 +1098,7 @@ export default function AdminDashboardPage() {
                             stroke="#F04438"
                             strokeWidth="11"
                             strokeDasharray="238.7"
-                            strokeDashoffset={238.7 - (238.7 * spoofCount) / (totalVerifs || 1)}
+                            strokeDashoffset={238.7 - (238.7 * failedCount) / (totalVerifs || 1)}
                             strokeLinecap="round"
                             fill="transparent"
                           />
@@ -707,25 +1116,17 @@ export default function AdminDashboardPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full bg-[#12B76A]" />
-                        <span className="text-[#6B4B55]">Berhasil</span>
+                        <span className="text-[#6B4B55]">Berhasil Lolos</span>
                       </div>
                       <span className="text-[#2B0E17] font-bold">{passRate}%</span>
                     </div>
 
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-[#F79009]" />
-                        <span className="text-[#6B4B55]">Ditinjau</span>
-                      </div>
-                      <span className="text-[#2B0E17] font-bold">{needReviewRate}%</span>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full bg-[#F04438]" />
-                        <span className="text-[#6B4B55]">Diblokir</span>
+                        <span className="text-[#6B4B55]">Verifikasi Gagal</span>
                       </div>
-                      <span className="text-[#2B0E17] font-bold">{spoofRate}%</span>
+                      <span className="text-[#2B0E17] font-bold">{failRate}%</span>
                     </div>
                   </div>
                 </div>
@@ -806,15 +1207,10 @@ export default function AdminDashboardPage() {
                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                 <span>Berhasil</span>
                               </span>
-                            ) : isBlocked ? (
+                            ) : (
                               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-semibold">
                                 <ShieldCheck className="w-3.5 h-3.5" />
                                 <span>Verifikasi gagal</span>
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-semibold">
-                                <AlertTriangle className="w-3.5 h-3.5" />
-                                <span>Ditinjau</span>
                               </span>
                             )}
 
@@ -888,13 +1284,9 @@ export default function AdminDashboardPage() {
                     <span className="px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-bold border border-[#A6F4C5]">
                       &bull; Berhasil
                     </span>
-                  ) : selectedRecord.status === 'SPOOF_FAILED' || selectedRecord.status === 'VIRTUAL_CAM_BLOCKED' ? (
-                    <span className="px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-bold border border-[#FECDCA]">
-                      &bull; Diblokir
-                    </span>
                   ) : (
-                    <span className="px-3 py-1 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-bold border border-[#FDE8B3]">
-                      &bull; Perlu ditinjau
+                    <span className="px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-bold border border-[#FECDCA]">
+                      &bull; Verifikasi gagal
                     </span>
                   )}
                 </div>
@@ -1080,16 +1472,16 @@ export default function AdminDashboardPage() {
                   </div>
                   <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-semibold">
                     <span className="w-2 h-2 rounded-full bg-[#12B76A] animate-pulse"></span>
-                    <span>{needReviewCount + spoofCount} kasus perlu tindakan</span>
+                    <span>{failedCount} kasus terindikasi pelanggaran</span>
                   </div>
                 </div>
 
                 {/* 3 Metric Summary Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-                    <p className="text-xs font-medium text-[#7D5662]">Antrean aktif</p>
-                    <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{needReviewCount + spoofCount}</h3>
-                    <p className="text-[11px] font-medium text-[#9E2648] mt-1">{spoofCount} terdeteksi pelanggaran</p>
+                    <p className="text-xs font-medium text-[#7D5662]">Antrean pelanggaran</p>
+                    <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{failedCount}</h3>
+                    <p className="text-[11px] font-medium text-[#9E2648] mt-1">{failedCount} terdeteksi pelanggaran</p>
                   </div>
 
                   <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
@@ -1176,13 +1568,9 @@ export default function AdminDashboardPage() {
                                 <span className="px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-semibold">
                                   &bull; Berhasil
                                 </span>
-                              ) : isBlocked ? (
-                                <span className="px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-semibold">
-                                  &bull; Diblokir
-                                </span>
                               ) : (
-                                <span className="px-3 py-1 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-semibold">
-                                  &bull; Perlu ditinjau
+                                <span className="px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-semibold">
+                                  &bull; Verifikasi gagal
                                 </span>
                               )}
 
@@ -1222,7 +1610,7 @@ export default function AdminDashboardPage() {
                 </div>
 
                 <button
-                  onClick={() => alert('Laporan riwayat CSV berhasil diekspor!')}
+                  onClick={handleExportCSV}
                   className="px-4 py-2 rounded-full bg-white border border-[#EEDDE2] hover:bg-[#FAF4F6] text-[#9E2648] text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -1230,42 +1618,79 @@ export default function AdminDashboardPage() {
                 </button>
               </div>
 
-              {/* Filter Bar matching Figma */}
-              <div className="bg-white p-4 rounded-2xl border border-[#F0E4E7] shadow-sm flex flex-col sm:flex-row items-center gap-3">
+              {/* Filter Bar dengan Custom Dropdown Elegan */}
+              <div className="bg-white p-4 rounded-2xl border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)] flex flex-col md:flex-row items-center gap-3">
                 <div className="relative flex-1 w-full">
                   <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
                     type="text"
                     value={historySearchQuery}
                     onChange={(e) => setHistorySearchQuery(e.target.value)}
-                    placeholder="Cari nama, ID, atau deteksi..."
-                    className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 text-xs text-[#2B0E17] placeholder:text-gray-400 focus:outline-none focus:border-[#9E2648]"
+                    placeholder="Cari nama, ID, posisi, atau deteksi..."
+                    className="w-full pl-10 pr-9 py-2 rounded-xl border border-gray-200 text-xs text-[#2B0E17] placeholder:text-gray-400 focus:outline-none focus:border-[#9E2648] bg-[#FAF8F9]/50 transition-colors"
                   />
+                  {historySearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setHistorySearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5"
+                      title="Hapus pencarian"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <select
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
+                  {/* Filter Status */}
+                  <CustomDropdown<'ALL' | 'PASSED' | 'FAILED'>
                     value={historyStatusFilter}
-                    onChange={(e) => setHistoryStatusFilter(e.target.value as any)}
-                    className="px-3 py-2 rounded-xl border border-gray-200 text-xs text-[#2B0E17] bg-white focus:outline-none"
-                  >
-                    <option value="ALL">Semua status</option>
-                    <option value="PASSED">Berhasil</option>
-                    <option value="FAILED">Verifikasi gagal</option>
-                    <option value="REVIEW">Perlu ditinjau</option>
-                  </select>
+                    onChange={setHistoryStatusFilter}
+                    options={[
+                      { value: 'ALL', label: 'Semua status' },
+                      { value: 'PASSED', label: 'Berhasil' },
+                      { value: 'FAILED', label: 'Verifikasi gagal' },
+                    ]}
+                    icon={<Filter className="w-3.5 h-3.5" />}
+                  />
 
-                  <select className="px-3 py-2 rounded-xl border border-gray-200 text-xs text-[#2B0E17] bg-white focus:outline-none">
-                    <option>Semua tanggal</option>
-                    <option>Hari ini</option>
-                    <option>7 hari terakhir</option>
-                  </select>
+                  {/* Filter Tanggal */}
+                  <CustomDropdown<'ALL' | 'TODAY' | '7DAYS' | '30DAYS'>
+                    value={historyDateFilter}
+                    onChange={setHistoryDateFilter}
+                    options={[
+                      { value: 'ALL', label: 'Semua tanggal' },
+                      { value: 'TODAY', label: 'Hari ini' },
+                      { value: '7DAYS', label: '7 hari terakhir' },
+                      { value: '30DAYS', label: '30 hari terakhir' },
+                    ]}
+                    icon={<Calendar className="w-3.5 h-3.5" />}
+                  />
 
-                  <select className="px-3 py-2 rounded-xl border border-gray-200 text-xs text-[#2B0E17] bg-white focus:outline-none">
-                    <option>Semua perangkat</option>
-                    <option>Webcam internal</option>
-                    <option>Eksternal USB</option>
-                  </select>
+                  {/* Filter Perangkat */}
+                  <CustomDropdown<'ALL' | 'INTERNAL' | 'EXTERNAL'>
+                    value={historyDeviceFilter}
+                    onChange={setHistoryDeviceFilter}
+                    options={[
+                      { value: 'ALL', label: 'Semua perangkat' },
+                      { value: 'INTERNAL', label: 'Webcam internal' },
+                      { value: 'EXTERNAL', label: 'Eksternal USB' },
+                    ]}
+                    icon={<Laptop className="w-3.5 h-3.5" />}
+                  />
+
+                  {/* Reset Filters button if any active filter */}
+                  {hasActiveHistoryFilter && (
+                    <button
+                      type="button"
+                      onClick={resetHistoryFilters}
+                      className="h-9 px-3 rounded-xl text-xs font-semibold text-[#9E2648] bg-[#FBECEF] hover:bg-[#F7D8E0] transition-colors flex items-center gap-1.5 border border-[#9E2648]/20 shrink-0"
+                      title="Reset semua filter"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Reset</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1276,76 +1701,106 @@ export default function AdminDashboardPage() {
                     <h3 className="text-base font-bold text-[#2B0E17]">Aktivitas terbaru</h3>
                     <p className="text-xs text-[#7D5662]">Riwayat verifikasi yang sesuai dengan filter</p>
                   </div>
-                  <span className="text-xs font-bold text-gray-400">{filteredHistory.length} rekaman</span>
+                  <span className="text-xs font-bold text-[#9E2648] bg-[#FBECEF] px-2.5 py-1 rounded-full">
+                    {filteredHistory.length} rekaman
+                  </span>
                 </div>
 
-                <div className="space-y-3">
-                  {filteredHistory.map((item) => {
-                    const isSuccess = item.status === 'PASSED';
-                    const isBlocked = item.status === 'SPOOF_FAILED' || item.status === 'VIRTUAL_CAM_BLOCKED';
-
-                    return (
-                      <div
-                        key={item.id}
-                        onClick={() => {
-                          setSelectedRecord(item);
-                          setActiveTab('audit');
-                        }}
-                        className="p-4 rounded-2xl border border-[#F2E4E8] bg-white hover:bg-[#FDF9FA] transition-all cursor-pointer flex items-center justify-between gap-4"
+                {filteredHistory.length === 0 ? (
+                  <div className="py-12 px-4 flex flex-col items-center justify-center text-center">
+                    <div className="w-12 h-12 rounded-2xl bg-[#FAF0F2] text-[#9E2648] flex items-center justify-center mb-3 border border-[#F2D7DE]">
+                      <Filter className="w-5 h-5" />
+                    </div>
+                    <h4 className="text-sm font-bold text-[#2B0E17]">Tidak ada data yang sesuai</h4>
+                    <p className="text-xs text-[#7D5662] mt-1 max-w-sm">
+                      Tidak ditemukan riwayat verifikasi yang cocok dengan kriteria filter yang Anda pilih.
+                    </p>
+                    {hasActiveHistoryFilter && (
+                      <button
+                        onClick={resetHistoryFilters}
+                        className="mt-4 px-4 py-2 rounded-xl bg-[#9E2648] text-white text-xs font-semibold hover:bg-[#851E3B] transition-colors flex items-center gap-2 shadow-sm shadow-[#9E2648]/20"
                       >
-                        <div className="flex items-center gap-3.5 min-w-0">
-                          {item.snapshot_url ? (
-                            <div className="relative w-11 h-11 rounded-xl overflow-hidden border border-gray-200 shrink-0 bg-gray-100">
-                              <Image src={item.snapshot_url} alt={item.full_name} fill unoptimized className="object-cover" />
-                            </div>
-                          ) : (
-                            <div className="w-11 h-11 rounded-xl bg-[#FAF0F2] text-[#9E2648] font-bold text-xs flex items-center justify-center shrink-0 border border-[#F2D7DE]">
-                              {item.full_name.substring(0, 2).toUpperCase()}
-                            </div>
-                          )}
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Reset Semua Filter</span>
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredHistory.map((item) => {
+                      const isSuccess = item.status === 'PASSED';
+                      const deviceLabel = item.user_agent?.includes('Windows')
+                        ? 'Windows'
+                        : item.user_agent?.includes('Mac')
+                        ? 'macOS'
+                        : item.user_agent?.includes('Android')
+                        ? 'Android'
+                        : item.user_agent?.includes('iPhone')
+                        ? 'iOS'
+                        : 'Webcam';
 
-                          <div>
-                            <h4 className="text-xs sm:text-sm font-bold text-[#2B0E17]">{item.full_name}</h4>
-                            <p className="text-[11px] text-gray-400 font-mono">2307411028 - REG-24031</p>
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => {
+                            setSelectedRecord(item);
+                            setActiveTab('audit');
+                          }}
+                          className="p-4 rounded-2xl border border-[#F2E4E8] bg-white hover:bg-[#FDF9FA] transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                        >
+                          <div className="flex items-center gap-3.5 min-w-0">
+                            {item.snapshot_url ? (
+                              <div className="relative w-11 h-11 rounded-xl overflow-hidden border border-gray-200 shrink-0 bg-gray-100">
+                                <Image src={item.snapshot_url} alt={item.full_name} fill unoptimized className="object-cover" />
+                              </div>
+                            ) : (
+                              <div className="w-11 h-11 rounded-xl bg-[#FAF0F2] text-[#9E2648] font-bold text-xs flex items-center justify-center shrink-0 border border-[#F2D7DE]">
+                                {item.full_name.substring(0, 2).toUpperCase()}
+                              </div>
+                            )}
+
+                            <div>
+                              <h4 className="text-xs sm:text-sm font-bold text-[#2B0E17]">{item.full_name}</h4>
+                              <p className="text-[11px] text-gray-400 font-mono">
+                                {item.job_position || item.jobPosition || 'Pelamar'} • {deviceLabel}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between sm:justify-end gap-4 sm:gap-6">
+                            <span className="text-xs text-gray-500 flex items-center gap-1 font-mono">
+                              <Clock className="w-3.5 h-3.5 text-gray-400" />
+                              {new Date(item.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })},{' '}
+                              {new Date(item.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+
+                            <span className="text-xs text-[#7D5662] hidden md:inline-block max-w-[200px] truncate">
+                              {isSuccess ? 'Liveness tervalidasi' : (item.failure_reason || 'Verifikasi tidak valid')}
+                            </span>
+
+                            {isSuccess ? (
+                              <span className="px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-semibold whitespace-nowrap">
+                                &bull; Berhasil
+                              </span>
+                            ) : (
+                              <span className="px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-semibold whitespace-nowrap">
+                                &bull; Verifikasi gagal
+                              </span>
+                            )}
+
+                            <button
+                              onClick={(e) => handleDeleteRecord(item.id, e)}
+                              title="Hapus rekaman"
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-8">
-                          <span className="text-xs text-gray-500 flex items-center gap-1 font-mono">
-                            <Clock className="w-3.5 h-3.5 text-gray-400" />
-                            {new Date(item.created_at).toLocaleTimeString('id-ID')}
-                          </span>
-
-                          <span className="text-xs text-[#7D5662]">
-                            {isSuccess ? 'Liveness tervalidasi' : (item.failure_reason || 'Depth variance rendah')}
-                          </span>
-
-                          {isSuccess ? (
-                            <span className="px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-semibold">
-                              &bull; Berhasil
-                            </span>
-                          ) : isBlocked ? (
-                            <span className="px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-semibold">
-                              &bull; Verifikasi gagal
-                            </span>
-                          ) : (
-                            <span className="px-3 py-1 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-semibold">
-                              &bull; Perlu ditinjau
-                            </span>
-                          )}
-
-                          <button
-                            onClick={(e) => handleDeleteRecord(item.id, e)}
-                            title="Hapus rekaman"
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1537,7 +1992,7 @@ export default function AdminDashboardPage() {
 
                     <div className="py-3 flex justify-between">
                       <span className="text-[#7D5662]">Email</span>
-                      <span className="font-semibold font-mono text-[#2B0E17]">admin@verigate.id</span>
+                      <span className="font-semibold font-mono text-[#2B0E17]">admin@veriface.id</span>
                     </div>
 
                     <div className="py-3 flex justify-between">
@@ -1591,6 +2046,59 @@ export default function AdminDashboardPage() {
 
         </main>
       </div>
+
+      {/* Real-time Floating Notification Toast */}
+      {toastNotification && (
+        <div
+          onClick={() => {
+            setSelectedRecord(toastNotification.record);
+            setActiveTab('audit');
+            setToastNotification(null);
+          }}
+          className="fixed bottom-6 right-6 z-50 max-w-sm w-full bg-white/95 backdrop-blur-md border border-[#EEDDE2] p-4 rounded-3xl shadow-2xl cursor-pointer hover:scale-[1.02] transition-all animate-fade-in flex items-start gap-3.5"
+        >
+          <div
+            className={`w-9 h-9 rounded-2xl flex items-center justify-center shrink-0 ${
+              toastNotification.type === 'passed'
+                ? 'bg-[#EBF7EE] text-[#15803D]'
+                : toastNotification.type === 'blocked'
+                ? 'bg-[#FEE4E2] text-[#F04438]'
+                : 'bg-[#FFF8E6] text-[#F79009]'
+            }`}
+          >
+            {toastNotification.type === 'passed' ? (
+              <CheckCircle2 className="w-5 h-5" />
+            ) : toastNotification.type === 'blocked' ? (
+              <ShieldCheck className="w-5 h-5" />
+            ) : (
+              <AlertTriangle className="w-5 h-5" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#9E2648]">
+                Aktivitas Verifikasi Baru
+              </span>
+              <span className="text-[10px] text-gray-400 font-mono">{toastNotification.time}</span>
+            </div>
+            <h5 className="text-xs font-bold text-[#2B0E17] truncate mt-0.5">
+              {toastNotification.name}
+            </h5>
+            <p className="text-[11px] text-[#7D5662] truncate">{toastNotification.desc}</p>
+            <p className="text-[10px] text-[#9E2648] font-semibold mt-1">Klik untuk audit visual &rarr;</p>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setToastNotification(null);
+            }}
+            className="text-gray-400 hover:text-gray-600 text-sm leading-none"
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* Snapshot Modal */}
       {modalSnapshot && (

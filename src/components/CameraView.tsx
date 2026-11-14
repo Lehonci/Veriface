@@ -55,37 +55,10 @@ export const CameraView: React.FC<CameraViewProps> = ({
   return (
     <div className="flex flex-col h-full justify-between">
       {/* Right Column Header */}
-      <div className="flex items-center justify-between gap-4 mb-4">
-        <div>
-          <h3 className="text-xl sm:text-2xl font-bold text-[#2B0E17] tracking-tight">
-            Pratinjau verifikasi
-          </h3>
-        </div>
-
-        {/* Status Pill in top right - Inverted to Maroon with Cream Text */}
-        <div
-          className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold shadow-sm transition-colors ${
-            hasAccessory
-              ? 'bg-[#991B1B] text-white'
-              : isStreaming
-              ? faceDetected
-                ? 'bg-[#15803D] text-white'
-                : 'bg-[#B45309] text-white'
-              : 'bg-[#7B2E46] text-[#FFFDF9]'
-          }`}
-        >
-          {isStreaming ? (
-            hasAccessory ? (
-              <span>Atribut terdeteksi ({accessoryDetails.join(', ') || 'Kacamata'})</span>
-            ) : faceDetected ? (
-              <span>Siap scan</span>
-            ) : (
-              <span>Mencari wajah</span>
-            )
-          ) : (
-            <span>Kamera belum aktif</span>
-          )}
-        </div>
+      <div className="mb-4">
+        <h3 className="text-xl sm:text-2xl font-bold text-[#2B0E17] tracking-tight">
+          Pratinjau verifikasi
+        </h3>
       </div>
 
       {/* Main Viewport Container */}
@@ -195,26 +168,21 @@ export const CameraView: React.FC<CameraViewProps> = ({
           <div className="flex flex-col items-center justify-center p-6 text-center z-20">
             {/* Soft Circular Glow Badge with ScanFace Icon */}
             <div className="w-16 h-16 rounded-full bg-[#7B2E46]/10 border border-[#7B2E46]/20 flex items-center justify-center text-[#7B2E46] mb-4 shadow-sm">
-              <ScanFace className="w-7 h-7" />
+              {isLoadingCamera ? (
+                <Loader2 className="w-7 h-7 animate-spin text-[#7B2E46]" />
+              ) : (
+                <ScanFace className="w-7 h-7" />
+              )}
             </div>
 
             <h4 className="text-base sm:text-lg font-bold text-[#2B0E17] tracking-tight">
-              Kamera belum dimulai
+              {isLoadingCamera ? 'Sedang membuka kamera...' : 'Kamera belum dimulai'}
             </h4>
             <p className="text-xs text-[#7A4B58] mt-1 max-w-xs font-medium">
-              Lengkapi data diri untuk melanjutkan
+              {isLoadingCamera
+                ? 'Harap izinkan akses webcam pada peramban Anda.'
+                : 'Lengkapi data diri di sebelah kiri, lalu klik "Lanjut ke pemindaian".'}
             </p>
-
-            {onStartCamera && (
-              <button
-                type="button"
-                onClick={onStartCamera}
-                disabled={isLoadingCamera || !canStartScan}
-                className="mt-4 px-5 py-2.5 rounded-full font-semibold text-xs bg-[#7B2E46] hover:bg-[#682238] text-white shadow-md shadow-[#7B2E46]/20 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {isLoadingCamera ? 'Membuka Kamera...' : 'Buka & Izinkan Kamera'}
-              </button>
-            )}
 
             {errorMessage && (
               <p className="text-xs text-[#B91C1C] mt-3 font-semibold">{errorMessage}</p>
@@ -233,46 +201,29 @@ export const CameraView: React.FC<CameraViewProps> = ({
         )}
       </div>
 
-      {/* Viewport Bottom Hint / Action */}
+      {/* Viewport Bottom Hint / Status */}
       {isStreaming && (
-        <div className="mt-4 flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-[#F5EAE1]/90 border border-[#7B2E46]/15">
-          <div className="flex items-center gap-2.5 text-xs text-[#4A1A28] font-medium">
-            <div
-              className={`w-2 h-2 rounded-full shrink-0 ${
-                hasAccessory ? 'bg-amber-600' : 'bg-[#7B2E46] animate-pulse'
-              }`}
-            />
-            <span>
-              {isScanning
-                ? 'Tatap lurus ke kamera selama 2-3 detik secara alami.'
-                : hasAccessory
-                ? accessoryReason || 'Lepas kacamata atau masker penutup muka untuk melanjutkan verifikasi.'
+        <div className="mt-4 flex items-center gap-2.5 p-3.5 rounded-2xl bg-[#F5EAE1]/90 border border-[#7B2E46]/15">
+          <div
+            className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+              hasAccessory
+                ? 'bg-amber-600'
+                : isScanning
+                ? 'bg-rose-500 animate-ping'
                 : faceDetected
-                ? 'Wajah terdeteksi. Tekan tombol verifikasi untuk mulai memindai.'
-                : 'Arahkan wajah Anda ke dalam oval panduan.'}
-            </span>
-          </div>
-
-          {onStartScan && (
-            <button
-              type="button"
-              onClick={onStartScan}
-              disabled={isModelLoading || isScanning || !faceDetected || !canStartScan || hasAccessory}
-              className="px-5 py-2 rounded-xl font-bold text-xs bg-[#7B2E46] hover:bg-[#682238] text-white shadow-md shadow-[#7B2E46]/20 flex items-center gap-2 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
-            >
-              {isScanning ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Memindai...</span>
-                </>
-              ) : (
-                <>
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Mulai Scan 3D</span>
-                </>
-              )}
-            </button>
-          )}
+                ? 'bg-emerald-600'
+                : 'bg-[#7B2E46] animate-pulse'
+            }`}
+          />
+          <span className="text-xs text-[#4A1A28] font-medium leading-relaxed">
+            {isScanning
+              ? 'Sedang memindai geometri wajah... Tatap lurus ke kamera selama 2-3 detik secara alami.'
+              : hasAccessory
+              ? accessoryReason || 'Lepas kacamata atau masker penutup muka untuk melanjutkan verifikasi.'
+              : faceDetected
+              ? 'Wajah terdeteksi dan siap. Tekan tombol "Mulai Pemindaian Liveness" di formulir untuk memverifikasi.'
+              : 'Arahkan wajah Anda ke dalam oval panduan kamera.'}
+          </span>
         </div>
       )}
     </div>

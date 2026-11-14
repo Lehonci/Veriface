@@ -1,6 +1,7 @@
 {
-  "name": "identity-gateway",
-  "version": "0.1.0",
+  "name": "veriface",
+  "version": "0.2.0",
+  "description": "Veriface - Pre-Screening Biometrik & 3D Liveness Detection",
   "private": true,
   "scripts": {
     "dev": "next dev",
