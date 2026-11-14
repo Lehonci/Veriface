@@ -20,11 +20,9 @@ export interface VerifaceResult {
 }
 
 const IMG_SIZE = 224;
-const CROP_MARGIN = 1.4;
 const MEAN = [0.485, 0.456, 0.406];
 const STD = [0.229, 0.224, 0.225];
 
-let landmarker: FaceLandmarker | null = null;
 let onnxSession: ort.InferenceSession | null = null;
 let modelConfig: any = null;
 let isInitializing = false;
@@ -116,11 +114,10 @@ export async function evaluateVideoFrame(
   cameraLabel: string = '',
   existingLandmarks?: LandmarkPoint[]
 ): Promise<VerifaceResult> {
-  // Cek Virtual Camera Blocker
   if (isVirtualCamera(cameraLabel)) {
     return {
       status: 'VIRTUAL_CAM_BLOCKED',
-      message: 'Kamera virtual (OBS/ManyCam) terdeteksi. Gunakan webcam fisik.',
+      message: 'Kamera virtual terdeteksi. Gunakan webcam fisik.',
     };
   }
 
@@ -175,13 +172,11 @@ export async function evaluateVideoFrame(
     if (py > maxY) maxY = py;
   }
 
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  const side = Math.max(maxX - minX, maxY - minY) * CROP_MARGIN;
-  const sx0 = cx - side / 2;
-  const sy0 = cy - side / 2;
+  // Ambil area tengah video beserta margin di sekitarnya (agar bingkai HP tetap tertangkap jika spoofing)
+  const side = Math.min(w, h) * 0.85;
+  const sx0 = (w - side) / 2;
+  const sy0 = (h - side) / 2;
 
-  // Crop ke Canvas 224x224 dengan area luar berwarna hitam
   const canvas = document.createElement('canvas');
   canvas.width = IMG_SIZE;
   canvas.height = IMG_SIZE;
@@ -189,15 +184,13 @@ export async function evaluateVideoFrame(
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
 
-  const scale = IMG_SIZE / side;
-  ctx.setTransform(scale, 0, 0, scale, -sx0 * scale, -sy0 * scale);
-  ctx.drawImage(video, 0, 0);
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // Gambar ke canvas 224x224
+  ctx.drawImage(video, sx0, sy0, side, side, 0, 0, IMG_SIZE, IMG_SIZE);
 
   const imgData = ctx.getImageData(0, 0, IMG_SIZE, IMG_SIZE).data;
   const snapshotBase64 = canvas.toDataURL('image/jpeg', 0.85);
 
-  // Audit Iluminasi BT.601 pada 50% area tengah (indeks 56..168)
+  // Audit Iluminasi BT.601
   let lumaSum = 0;
   let count = 0;
   const startIdx = Math.floor(IMG_SIZE / 4);
@@ -206,55 +199,45 @@ export async function evaluateVideoFrame(
   for (let y = startIdx; y < endIdx; y++) {
     for (let x = startIdx; x < endIdx; x++) {
       const idx = (y * IMG_SIZE + x) * 4;
-      const r = imgData[idx];
-      const g = imgData[idx + 1];
-      const b = imgData[idx + 2];
-      lumaSum += 0.299 * r + 0.587 * g + 0.114 * b;
+      lumaSum += 0.299 * imgData[idx] + 0.587 * imgData[idx + 1] + 0.114 * imgData[idx + 2];
       count++;
     }
   }
   const meanLuma = lumaSum / count;
-  const minLuma = modelConfig?.illumination_gate_bt601?.min_mean_luma ?? 50;
+  const minLuma = modelConfig?.illumination_gate_bt601?.min_mean_luma ?? 45;
 
   if (meanLuma < minLuma) {
     return {
       status: 'HOLD_LIGHT',
-      message: `HOLD: Pencahayaan kurang (${meanLuma.toFixed(0)} < ${minLuma}). Cari ruangan lebih terang.`,
+      message: `Pencahayaan ruangan terlalu gelap (${meanLuma.toFixed(0)} Lux). Harap tambah cahaya.`,
       luma: meanLuma,
       snapshotBase64,
     };
   }
 
-  // Konversi ke Tensor NCHW [1, 3, 224, 224] dengan normalisasi ImageNet (x/255 - mean)/std
+  // Konversi ke Tensor NCHW [1, 3, 224, 224]
   const floatData = new Float32Array(3 * IMG_SIZE * IMG_SIZE);
   const stride = IMG_SIZE * IMG_SIZE;
   for (let i = 0; i < stride; i++) {
-    const r = imgData[i * 4] / 255.0;
-    const g = imgData[i * 4 + 1] / 255.0;
-    const b = imgData[i * 4 + 2] / 255.0;
-
-    floatData[i] = (r - MEAN[0]) / STD[0];
-    floatData[stride + i] = (g - MEAN[1]) / STD[1];
-    floatData[2 * stride + i] = (b - MEAN[2]) / STD[2];
+    floatData[i] = (imgData[i * 4] / 255.0 - MEAN[0]) / STD[0];
+    floatData[stride + i] = (imgData[i * 4 + 1] / 255.0 - MEAN[1]) / STD[1];
+    floatData[2 * stride + i] = (imgData[i * 4 + 2] / 255.0 - MEAN[2]) / STD[2];
   }
 
   const inputTensor = new ort.Tensor('float32', floatData, [1, 3, IMG_SIZE, IMG_SIZE]);
   const outputs = await onnxSession.run({ input: inputTensor });
 
-  const livenessLogit = (outputs.liveness_logit.data as Float32Array)[0];
-  const occlusionLogit = (outputs.occlusion_logit.data as Float32Array)[0];
-
-  const livenessProb = sigmoid(livenessLogit);
-  const occlusionProb = sigmoid(occlusionLogit);
+  const livenessProb = sigmoid((outputs.liveness_logit.data as Float32Array)[0]);
+  const occlusionProb = sigmoid((outputs.occlusion_logit.data as Float32Array)[0]);
 
   const occThreshold = modelConfig?.occlusion_hold_threshold ?? 0.5;
   const liveThreshold = modelConfig?.threshold ?? 0.7262;
 
-  // Cek Gate Aksesoris (Masker / Kacamata -> HOLD)
+  // Cek Gate Aksesoris (Masker / Kacamata)
   if (occlusionProb >= occThreshold) {
     return {
       status: 'HOLD_OCCLUSION',
-      message: 'HOLD: Harap lepas masker atau kacamata Anda terlebih dahulu.',
+      message: 'Terdeteksi penggunaan masker atau kacamata. Harap lepaskan atribut wajah Anda.',
       livenessScore: livenessProb,
       occlusionScore: occlusionProb,
       luma: meanLuma,
@@ -266,7 +249,7 @@ export async function evaluateVideoFrame(
   if (livenessProb >= liveThreshold) {
     return {
       status: 'PASSED',
-      message: 'PASSED: Wajah asli terverifikasi. Mengalihkan ke ruang Zoom...',
+      message: 'PASSED: Wajah 3D asli terverifikasi.',
       livenessScore: livenessProb,
       occlusionScore: occlusionProb,
       luma: meanLuma,
@@ -275,7 +258,7 @@ export async function evaluateVideoFrame(
   } else {
     return {
       status: 'SPOOF_FAILED',
-      message: 'SPOOF_FAILED: Terdeteksi indikasi foto cetak atau layar perangkat.',
+      message: `Indikasi objek 2D / Spoofing layar terdeteksi (Skor Liveness: ${(livenessProb * 100).toFixed(1)}%).`,
       livenessScore: livenessProb,
       occlusionScore: occlusionProb,
       luma: meanLuma,

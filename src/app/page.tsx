@@ -8,7 +8,6 @@ import { SuccessModal } from '@/components/SuccessModal';
 import { FailureAlert } from '@/components/FailureAlert';
 import { useCamera } from '@/hooks/useCamera';
 import { useFaceLandmarker } from '@/hooks/useFaceLandmarker';
-import { checkVirtualCamera } from '@/lib/cv/virtualCamera';
 import { captureAndCropFaceSnapshot } from '@/lib/cv/cropFace';
 import {
   ApplicantIdentity,
@@ -33,6 +32,20 @@ export default function GatewayPage() {
   const [failureInfo, setFailureInfo] = useState<{ title: string; reason: string } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // BUNGKAM LOG PALSU MEDIAPIPE AGAR NEXT.JS TIDAK CRASH MUNCUL KOTAK MERAH
+  useEffect(() => {
+    const origError = console.error;
+    console.error = (...args: any[]) => {
+      if (typeof args[0] === 'string' && args[0].includes('Created TensorFlow Lite XNNPACK delegate')) {
+        return;
+      }
+      origError.apply(console, args);
+    };
+    return () => {
+      console.error = origError;
+    };
+  }, []);
 
   const {
     videoRef,
@@ -85,6 +98,7 @@ export default function GatewayPage() {
     snapshotBase64?: string;
   }) {
     setIsVerifying(true);
+    setFailureInfo(null);
 
     try {
       let snapshotBase64: string | null = result.snapshotBase64 || null;
@@ -98,36 +112,14 @@ export default function GatewayPage() {
         }
       }
 
-      if (result.passed) {
-        const res = await fetch('/api/verify/pass', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fullName: identity.fullName,
-            email: identity.email,
-            jobPosition: identity.jobPosition,
-            depthVariance: result.metrics.depthVariance,
-            luminanceScore: result.metrics.luminanceScore,
-            confidenceScore: result.metrics.confidenceScore,
-            snapshotBase64,
-          }),
-        });
+      if (!videoRef.current) return;
+      const ms = videoRef.current.srcObject as MediaStream;
+      const trackLabel = ms?.getVideoTracks()[0]?.label || '';
 
-        const data = await res.json();
-        if (data.success) {
-          setSuccessPayload(data);
-          setFailureInfo(null);
-        } else {
-          setFailureInfo({
-            title: 'Gagal Memproses Verifikasi',
-            reason: data.message || 'Terjadi kesalahan sistem.',
-          });
-        }
-      } else {
-        const failReason =
-          result.metrics.failureReason ||
-          'Wajah tidak terdeteksi sebagai objek 3D asli (terindikasi foto/layar).';
-
+      // 1. Jika dari awal sensor MediaPipe bawaan sudah mendeteksi gagal (misal pakai kacamata/masker), langsung gagalkan
+      if (!result.passed) {
+        const failReason = result.metrics.failureReason || 'Wajah tidak memenuhi syarat verifikasi 3D.';
+        
         await fetch('/api/verify/fail', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -149,7 +141,63 @@ export default function GatewayPage() {
           failureTitle = 'Verifikasi Ditolak: Atribut Kacamata Terdeteksi';
         } else if (failReason.toLowerCase().includes('masker') || failReason.toLowerCase().includes('penutup')) {
           failureTitle = 'Verifikasi Ditolak: Atribut Masker / Penutup Muka Terdeteksi';
-        } else if (failReason.toLowerCase().includes('cahaya') || failReason.toLowerCase().includes('gelap')) {
+        }
+
+        setFailureInfo({ title: failureTitle, reason: failReason });
+        return;
+      }
+
+      // 2. Jalankan Evaluasi ONNX Veriface
+      const onnxRes = await evaluateVideoFrame(videoRef.current, trackLabel);
+
+      if (onnxRes.status === 'PASSED') {
+        const res = await fetch('/api/verify/pass', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fullName: identity.fullName,
+            email: identity.email,
+            jobPosition: identity.jobPosition,
+            depthVariance: onnxRes.livenessScore || result.metrics.depthVariance,
+            luminanceScore: onnxRes.luma || result.metrics.luminanceScore,
+            confidenceScore: onnxRes.livenessScore || result.metrics.confidenceScore,
+            snapshotBase64,
+          }),
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          setSuccessPayload(data);
+          setFailureInfo(null);
+        } else {
+          setFailureInfo({
+            title: 'Gagal Memproses Verifikasi',
+            reason: data.message || 'Terjadi kesalahan saat menyimpan ke database.',
+          });
+        }
+      } else {
+        const failReason = onnxRes.message || 'Wajah tidak terdeteksi sebagai objek 3D asli (terindikasi foto/layar).';
+
+        await fetch('/api/verify/fail', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fullName: identity.fullName,
+            email: identity.email,
+            jobPosition: identity.jobPosition,
+            status: 'SPOOF_FAILED', // Paksa string SPOOF_FAILED agar backend Supabase selalu menerima lognya
+            failureReason: failReason,
+            depthVariance: onnxRes.livenessScore || result.metrics.depthVariance,
+            luminanceScore: onnxRes.luma || result.metrics.luminanceScore,
+            confidenceScore: onnxRes.livenessScore || result.metrics.confidenceScore,
+            snapshotBase64,
+          }),
+        });
+
+        let failureTitle = 'Verifikasi Gagal: Terdeteksi Objek 2D / Spoofing';
+        if (failReason.toLowerCase().includes('kacamata') || failReason.toLowerCase().includes('masker')) {
+          failureTitle = 'Verifikasi Ditolak: Atribut Wajah Terdeteksi';
+        } else if (onnxRes.status === 'HOLD_LIGHT') {
           failureTitle = 'Verifikasi Ditolak: Pencahayaan Ruangan Kurang';
         }
 
@@ -161,8 +209,8 @@ export default function GatewayPage() {
     } catch (err: unknown) {
       console.error('Error sending verification outcome:', err);
       setFailureInfo({
-        title: 'Kesalahan Jaringan',
-        reason: 'Gagal menghubungi server verifikasi. Silakan coba lagi.',
+        title: 'Kesalahan Sistem Verifikasi',
+        reason: 'Gagal memproses evaluasi wajah. Silakan klik Coba Lagi.',
       });
     } finally {
       setIsVerifying(false);
@@ -173,11 +221,7 @@ export default function GatewayPage() {
   const isFullNameValid = identity.fullName.trim().length >= 2;
   const isPositionValid = identity.jobPosition.trim().length >= 2;
 
-  const isFormValid = Boolean(
-    isFullNameValid &&
-    isEmailValid &&
-    isPositionValid
-  );
+  const isFormValid = Boolean(isFullNameValid && isEmailValid && isPositionValid);
 
   const handleStartVerification = async () => {
     if (!isFullNameValid) {
