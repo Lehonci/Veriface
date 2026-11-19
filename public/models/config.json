@@ -2,9 +2,11 @@
   "best_model": "CNN MobileNetV3-Small Multi-Head (veriface_liveness.onnx)",
   "datasets_used": [
     "LCC_FASD",
+    "CelebA-Spoof-mini",
     "Face Mask Dataset",
     "Eyeglasses Dataset"
   ],
+  "crop_margin": 2.0,
   "input": {
     "name": "input",
     "shape": [
@@ -29,53 +31,54 @@
     "occlusion_logit": "sigmoid(x) >= 0.5 -> HOLD (Harap lepas masker/kacamata)",
     "depth": "Peta kedalaman 3D 28x28"
   },
-  "threshold": 0.7262109518051147,
+  "threshold": 0.7340283393859863,
+  "eer_threshold": 0.48729613423347473,
   "occlusion_hold_threshold": 0.5,
   "illumination_gate_bt601": {
     "min_mean_luma": 50,
     "action_if_below": "HOLD (Pencahayaan kurang)"
   },
   "metrics_iso_30107_3": {
-    "APCER": 0.1724137931034483,
-    "BPCER": 0.0297029702970297,
-    "ACER": 0.101058381700239
+    "APCER": 0.19005847953216373,
+    "BPCER": 0.14566284779050737,
+    "ACER": 0.16786066366133556
   },
   "benchmark_comparison": [
     {
       "Paradigma": "Classical ML",
       "Model": "SVM (RBF Kernel)",
       "Input": "1404 Landmark 3D",
-      "Test AUC": 0.645,
-      "APCER (%)": 82.76,
-      "BPCER (%)": 15.13,
-      "ACER (%)": 48.95
+      "Test AUC": 0.5846,
+      "APCER (%)": 52.05,
+      "BPCER (%)": 35.19,
+      "ACER (%)": 43.62
     },
     {
       "Paradigma": "Classical ML",
       "Model": "Random Forest",
       "Input": "1404 Landmark 3D",
-      "Test AUC": 0.688,
-      "APCER (%)": 55.17,
-      "BPCER (%)": 24.47,
-      "ACER (%)": 39.82
+      "Test AUC": 0.6564,
+      "APCER (%)": 51.75,
+      "BPCER (%)": 27.17,
+      "ACER (%)": 39.46
     },
     {
       "Paradigma": "Artificial Neural Network (ANN)",
       "Model": "MediaPipe + MLP",
       "Input": "1404 Landmark 3D",
-      "Test AUC": 0.7505,
-      "APCER (%)": 67.24,
-      "BPCER (%)": 11.03,
-      "ACER (%)": 39.14
+      "Test AUC": 0.6673,
+      "APCER (%)": 49.71,
+      "BPCER (%)": 26.68,
+      "ACER (%)": 38.19
     },
     {
       "Paradigma": "Deep Learning (CNN + 3D Depth)",
       "Model": "CNN MobileNetV3 (Proposed / Best)",
       "Input": "Citra RGB 224x224",
-      "Test AUC": 0.973,
-      "APCER (%)": 17.24,
-      "BPCER (%)": 2.97,
-      "ACER (%)": 10.11
+      "Test AUC": 0.9138,
+      "APCER (%)": 19.01,
+      "BPCER (%)": 14.57,
+      "ACER (%)": 16.79
     }
   ]
 }

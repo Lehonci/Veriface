@@ -1,5 +1,4 @@
 import * as ort from 'onnxruntime-web';
-import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 import { LandmarkPoint } from '@/lib/cv/depthVariance';
 
 export type VerifaceStatus =
@@ -20,14 +19,13 @@ export interface VerifaceResult {
 }
 
 const IMG_SIZE = 224;
-const CROP_MARGIN = 1.4;
+const DEFAULT_CROP_MARGIN = 2.0; // Sinkron dengan CROP_MARGIN = 2.0 di Colab v4
 const MEAN = [0.485, 0.456, 0.406];
 const STD = [0.229, 0.224, 0.225];
 
-let landmarker: FaceLandmarker | null = null;
 let onnxSession: ort.InferenceSession | null = null;
 let modelConfig: any = null;
-let isInitializing = false;
+let initPromise: Promise<void> | null = null;
 
 const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
 
@@ -39,57 +37,34 @@ export function getModelConfig(): any {
   return modelConfig;
 }
 
-// 1. Inisialisasi Model (Panggil sekali saat halaman web dibuka untuk pre-warm)
+// 1. Inisialisasi Model (Aman dari race condition jika dipanggil bersamaan)
 export async function initVerifaceEngine(): Promise<void> {
   if (onnxSession && modelConfig) return;
-  if (isInitializing) return;
+  if (initPromise) return initPromise;
 
-  isInitializing = true;
-  try {
-    // 1. Load config.json
-    if (!modelConfig) {
-      const res = await fetch('/models/config.json');
-      if (res.ok) {
-        modelConfig = await res.json();
+  initPromise = (async () => {
+    try {
+      if (!modelConfig) {
+        const res = await fetch('/models/config.json', { cache: 'no-store' });
+        if (res.ok) {
+          modelConfig = await res.json();
+        }
       }
-    }
 
-    // 2. Load model ONNX WebAssembly
-    if (!onnxSession) {
-      ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
-      onnxSession = await ort.InferenceSession.create('/models/veriface_liveness.onnx', {
-        executionProviders: ['wasm'],
-      });
+      if (!onnxSession) {
+        ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
+        onnxSession = await ort.InferenceSession.create('/models/veriface_liveness.onnx', {
+          executionProviders: ['wasm'],
+        });
+      }
+    } catch (err) {
+      console.error('Inisialisasi ONNX Veriface Engine gagal:', err);
+    } finally {
+      initPromise = null;
     }
-  } catch (err) {
-    console.error('Inisialisasi ONNX Veriface Engine gagal:', err);
-  } finally {
-    isInitializing = false;
-  }
-}
+  })();
 
-// Lazy fallback untuk MediaPipe jika pemanggil tidak menyediakan landmarks
-async function getFallbackLandmarker(): Promise<FaceLandmarker | null> {
-  if (landmarker) return landmarker;
-  try {
-    const vision = await FilesetResolver.forVisionTasks(
-      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
-    );
-    landmarker = await FaceLandmarker.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath:
-          'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-        delegate: 'GPU',
-      },
-      runningMode: 'VIDEO',
-      numFaces: 1,
-      minFaceDetectionConfidence: 0.5,
-    });
-    return landmarker;
-  } catch (e) {
-    console.warn('Fallback FaceLandmarker gagal dimuat:', e);
-    return null;
-  }
+  return initPromise;
 }
 
 // 2. Deteksi Kamera Virtual (Driver Shield)
@@ -116,7 +91,6 @@ export async function evaluateVideoFrame(
   cameraLabel: string = '',
   existingLandmarks?: LandmarkPoint[]
 ): Promise<VerifaceResult> {
-  // Cek Virtual Camera Blocker
   if (isVirtualCamera(cameraLabel)) {
     return {
       status: 'VIRTUAL_CAM_BLOCKED',
@@ -141,43 +115,29 @@ export async function evaluateVideoFrame(
     return { status: 'NO_FACE', message: 'Video stream belum siap.' };
   }
 
-  let pts: [number, number][] = [];
+  const cropMargin = modelConfig?.crop_margin ?? DEFAULT_CROP_MARGIN;
+  let cx = w / 2;
+  let cy = h / 2;
+  let side = Math.min(w, h) * 0.85;
 
-  // Jika landmarks sudah ditangkap oleh MediaPipe di useFaceLandmarker, gunakan langsung!
+  // Gunakan landmarks dari useFaceLandmarker jika tersedia (tanpa load MediaPipe kedua)
   if (existingLandmarks && existingLandmarks.length >= 400) {
-    pts = existingLandmarks.slice(0, 468).map((l) => [l.x * w, l.y * h]);
-  } else {
-    // Fallback: deteksi menggunakan landmarker internal jika tidak disediakan
-    const fbLandmarker = await getFallbackLandmarker();
-    if (!fbLandmarker) {
-      return { status: 'NO_FACE', message: 'Detektor wajah tidak siap.' };
+    const pts = existingLandmarks.slice(0, 468).map((l) => [l.x * w, l.y * h]);
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+    for (const [px, py] of pts) {
+      if (px < minX) minX = px;
+      if (py < minY) minY = py;
+      if (px > maxX) maxX = px;
+      if (py > maxY) maxY = py;
     }
-    const det = fbLandmarker.detectForVideo(video, performance.now());
-    if (!det.faceLandmarks || det.faceLandmarks.length === 0) {
-      return { status: 'NO_FACE', message: 'Wajah tidak terdeteksi. Hadapkan wajah ke kamera.' };
-    }
-    pts = det.faceLandmarks[0].slice(0, 468).map((l) => [l.x * w, l.y * h]);
+    cx = (minX + maxX) / 2;
+    cy = (minY + maxY) / 2;
+    side = Math.max(maxX - minX, maxY - minY) * cropMargin;
   }
 
-  if (pts.length === 0) {
-    return { status: 'NO_FACE', message: 'Wajah tidak terdeteksi. Hadapkan wajah ke kamera.' };
-  }
-
-  // Hitung bounding box crop wajah dari 468 titik (sesuai crop_from_landmarks di Colab)
-  let minX = Infinity,
-    minY = Infinity,
-    maxX = -Infinity,
-    maxY = -Infinity;
-  for (const [px, py] of pts) {
-    if (px < minX) minX = px;
-    if (py < minY) minY = py;
-    if (px > maxX) maxX = px;
-    if (py > maxY) maxY = py;
-  }
-
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  const side = Math.max(maxX - minX, maxY - minY) * CROP_MARGIN;
   const sx0 = cx - side / 2;
   const sy0 = cy - side / 2;
 
@@ -248,7 +208,7 @@ export async function evaluateVideoFrame(
   const occlusionProb = sigmoid(occlusionLogit);
 
   const occThreshold = modelConfig?.occlusion_hold_threshold ?? 0.5;
-  const liveThreshold = modelConfig?.threshold ?? 0.7262;
+  const liveThreshold = modelConfig?.threshold ?? 0.85;
 
   // Cek Gate Aksesoris (Masker / Kacamata -> HOLD)
   if (occlusionProb >= occThreshold) {
@@ -275,7 +235,7 @@ export async function evaluateVideoFrame(
   } else {
     return {
       status: 'SPOOF_FAILED',
-      message: 'SPOOF_FAILED: Terdeteksi indikasi foto cetak atau layar perangkat.',
+      message: `SPOOF_FAILED: Terdeteksi indikasi foto cetak atau layar perangkat (Skor: ${(livenessProb * 100).toFixed(1)}%).`,
       livenessScore: livenessProb,
       occlusionScore: occlusionProb,
       luma: meanLuma,
