@@ -81,3 +81,22 @@ CREATE POLICY "snapshots_service_delete"
 ON storage.objects FOR DELETE
 TO service_role, authenticated
 USING (bucket_id = 'snapshots');
+
+-- 5. Tabel Nonce Persisten untuk Anti-Replay Scan Challenge Multi-Instans
+CREATE TABLE IF NOT EXISTS public.verification_nonces (
+    challenge_id TEXT PRIMARY KEY,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_nonces_expires_at
+    ON public.verification_nonces(expires_at);
+
+ALTER TABLE public.verification_nonces ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Service role only verification nonces" ON public.verification_nonces;
+CREATE POLICY "Service role only verification nonces"
+ON public.verification_nonces FOR ALL
+TO service_role
+USING (true)
+WITH CHECK (true);

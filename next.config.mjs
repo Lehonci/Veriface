@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false,
+  serverExternalPackages: ['sharp', 'onnxruntime-web'],
   experimental: {
     agentUpgrade: 'security',
   },
@@ -15,4 +16,3 @@ const nextConfig = {
 };
 
 export default nextConfig;
-

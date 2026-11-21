@@ -334,9 +334,6 @@ export function useFaceLandmarker({
                   ? Math.round(computeMedian(lumas) * 10) / 10
                   : Math.round(avgLuminance * 10) / 10;
 
-              const bestSnapshot =
-                [...onnxSamples].reverse().find((s) => Boolean(s.snapshotBase64))?.snapshotBase64;
-
               const lightHoldCount = onnxSamples.filter((s) => s.status === 'HOLD_LIGHT').length;
               const occHoldCount = onnxSamples.filter((s) => s.status === 'HOLD_OCCLUSION').length;
               const vcamBlockedSample = onnxSamples.find((s) => s.status === 'VIRTUAL_CAM_BLOCKED');
@@ -378,14 +375,33 @@ export function useFaceLandmarker({
                   finalFailureReason = `Terdeteksi indikasi foto cetak atau layar perangkat (Median ${onnxSamples.length} frame: ${(medianLiveness * 100).toFixed(1)}% < ambang ${(activeThreshold * 100).toFixed(1)}%).`;
                 }
               } else {
-                // Fallback jika ONNX session gagal terinisialisasi (misal offline WASM)
-                if (aggregated.passed) {
-                  finalStatus = 'PASSED';
-                } else {
-                  finalStatus = 'SPOOF_FAILED';
-                  finalFailureReason = aggregated.primaryFailureReason;
-                }
+                // Fail-closed: jangan pernah meloloskan pelamar hanya berdasarkan heuristik jika ONNX WASM gagal dimuat
+                finalStatus = 'SPOOF_FAILED';
+                finalFailureReason =
+                  'Model AI Liveness belum siap atau gagal dimuat di browser. Muat ulang halaman dan coba kembali.';
               }
+
+              // Pilih snapshot yang paling representatif (untuk PASSED, pilih frame yang skornya valid agar sinkron dengan verifikasi server)
+              const passingSampleWithSnap =
+                finalStatus === 'PASSED'
+                  ? [...onnxSamples]
+                      .filter(
+                        (s) =>
+                          Boolean(s.snapshotBase64) &&
+                          typeof s.livenessScore === 'number' &&
+                          s.livenessScore >= activeThreshold
+                      )
+                      .sort((a, b) => (b.livenessScore ?? 0) - (a.livenessScore ?? 0))[0]
+                  : undefined;
+
+              const bestSnapshot =
+                passingSampleWithSnap?.snapshotBase64 ||
+                [...onnxSamples].reverse().find((s) => Boolean(s.snapshotBase64))?.snapshotBase64;
+
+              const reportedConfidence =
+                finalStatus === 'PASSED' && typeof passingSampleWithSnap?.livenessScore === 'number'
+                  ? Math.max(medianLiveness, passingSampleWithSnap.livenessScore)
+                  : medianLiveness;
 
               if (onLivenessComplete) {
                 onLivenessComplete({
@@ -395,7 +411,7 @@ export function useFaceLandmarker({
                   metrics: {
                     depthVariance: aggregated.medianVariance,
                     luminanceScore: finalLuma,
-                    confidenceScore: medianLiveness,
+                    confidenceScore: scores.length > 0 ? reportedConfidence : 0,
                     sampleCount: Math.max(sampleBufferRef.current.length, onnxSamples.length),
                     failureReason: finalStatus === 'PASSED' ? undefined : finalFailureReason,
                   },

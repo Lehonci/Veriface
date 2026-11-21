@@ -18,6 +18,7 @@ import {
   signApplicantStatusToken,
   validateSnapshotDataUrl,
 } from '@/lib/verifyChallenge';
+import { verifySnapshotWithServerOnnx } from '@/lib/serverOnnxVerify';
 import { VerificationRecord, VerificationSuccessPayload } from '@/types';
 
 export async function POST(req: NextRequest) {
@@ -128,6 +129,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 5. Audit ulang citra snapshot di server dengan ONNX MobileNetV3 + BT.601
+    let serverAudit;
+    try {
+      serverAudit = await verifySnapshotWithServerOnnx({
+        snapshotBase64,
+        activeThreshold,
+        occlusionThreshold: modelPolicy.occlusionHoldThreshold,
+        minMeanLuma: modelPolicy.minMeanLuma,
+        claimedConfidence: parsedConfidence,
+      });
+    } catch (decodeErr) {
+      console.warn('Server snapshot decode error:', decodeErr);
+      return NextResponse.json(
+        { success: false, message: 'Citra snapshot tidak dapat didekode oleh server.' },
+        { status: 400 }
+      );
+    }
+
+    if (!serverAudit.verified) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            serverAudit.reason ||
+            'Verifikasi ulang ONNX di server menolak keaslian snapshot wajah.',
+        },
+        { status: 403 }
+      );
+    }
+
     const verificationId = `verif_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
     const snapshotUrl = await uploadSnapshotToStorage(verificationId, snapshotBase64);
 
@@ -150,8 +181,8 @@ export async function POST(req: NextRequest) {
       status: 'PASSED',
       failure_reason: null,
       depth_variance: parsedDepthVariance,
-      luminance_score: Math.round(parsedLuminance * 10) / 10,
-      confidence_score: Math.round(parsedConfidence * 10000) / 10000,
+      luminance_score: Math.round(serverAudit.meanLuma * 10) / 10,
+      confidence_score: Math.round(serverAudit.livenessScore * 10000) / 10000,
       snapshot_url: snapshotUrl,
       zoom_snapshot_url: null,
       zoom_captured_at: null,

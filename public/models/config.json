@@ -3,9 +3,10 @@
   "datasets_used": [
     "LCC_FASD",
     "CelebA-Spoof-mini",
-    "Face Mask Dataset"
+    "Face Mask Dataset",
+    "Eyeglasses Dataset"
   ],
-  "occlusion_note": "occlusion_logit ONNX dilatih pada dataset Masker; deteksi kacamata ditangani di frontend oleh heuristik MediaPipe pada src/lib/cv/facialAccessories.ts.",
+  "occlusion_note": "occlusion_logit ONNX v4.2 dilatih pada Face Mask Dataset dan Eyeglasses Dataset (2.763 citra wajah), diperkuat heuristik geometris MediaPipe pada src/lib/cv/facialAccessories.ts.",
   "crop_margin": 2.0,
   "input": {
     "name": "input",

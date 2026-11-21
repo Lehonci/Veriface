@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { SignJWT, jwtVerify } from 'jose';
 import { NextRequest } from 'next/server';
 import { getDomainSecretKey } from '@/lib/jwt';
+import { supabaseServer, isSupabaseServerConfigured } from '@/lib/supabase/server';
 import { LivenessThresholdMode } from '@/types';
 
 const CHALLENGE_TTL_MS = 10 * 60 * 1000; // 10 menit
@@ -22,6 +23,7 @@ g.__verifaceConsumedChallenges = consumedChallenges;
 export interface ServerModelPolicy {
   strictThreshold: number;
   balancedThreshold: number;
+  occlusionHoldThreshold: number;
   minMeanLuma: number;
 }
 
@@ -34,6 +36,7 @@ export function getServerModelPolicy(): ServerModelPolicy {
   let policy: ServerModelPolicy = {
     strictThreshold: 0.7062336802482605,
     balancedThreshold: 0.6293023824691772,
+    occlusionHoldThreshold: 0.5,
     minMeanLuma: 50,
   };
 
@@ -46,6 +49,10 @@ export function getServerModelPolicy(): ServerModelPolicy {
         typeof parsed.threshold === 'number' ? parsed.threshold : policy.strictThreshold,
       balancedThreshold:
         typeof parsed.eer_threshold === 'number' ? parsed.eer_threshold : policy.balancedThreshold,
+      occlusionHoldThreshold:
+        typeof parsed.occlusion_hold_threshold === 'number'
+          ? parsed.occlusion_hold_threshold
+          : policy.occlusionHoldThreshold,
       minMeanLuma:
         typeof parsed.illumination_gate_bt601?.min_mean_luma === 'number'
           ? parsed.illumination_gate_bt601.min_mean_luma
@@ -164,6 +171,29 @@ export async function consumeScanChallengeToken(
         valid: false,
         reason: 'Durasi pemindaian terlalu singkat atau tidak melalui proses liveness kamera.',
       };
+    }
+
+    // Jika tabel verification_nonces ada di Supabase (multi-instance replay guard), catat secara atomik
+    if (isSupabaseServerConfigured && supabaseServer) {
+      const { error: nonceErr } = await supabaseServer
+        .from('verification_nonces')
+        .insert([
+          {
+            challenge_id: challengeId,
+            expires_at: new Date(now + CHALLENGE_TTL_MS).toISOString(),
+          },
+        ]);
+
+      if (nonceErr) {
+        if (nonceErr.code === '23505') {
+          consumedChallenges.set(challengeId, now + CHALLENGE_TTL_MS);
+          return {
+            valid: false,
+            reason: 'Sesi pemindaian ini sudah digunakan. Silakan pindai ulang wajah Anda.',
+          };
+        }
+        // Abaikan jika tabel belum dimigrasikan (42P01 / PGRST205) agar fallback in-memory tetap berjalan
+      }
     }
 
     consumedChallenges.set(challengeId, now + CHALLENGE_TTL_MS);

@@ -528,20 +528,32 @@ export default function AdminDashboardPage() {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        // Apabila RLS ketat menutup langganan WebSocket anon, polling interval di bawah tetap mengambil pembaruan secara otomatis
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          supabase?.removeChannel(channel);
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
     };
   }, [isAuthenticated, handleIncomingRecord]);
 
-  // Polling fallback (menjamin pembaruan real-time & sinkronisasi decision/zoom snapshot bekerja mulus)
+  // Polling utama/fallback (menjamin pembaruan real-time & sinkronisasi decision/zoom snapshot tetap berjalan meski RLS menutup WebSocket anon)
   useEffect(() => {
     if (!isAuthenticated) return;
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/admin/verifications?status=ALL&_t=${Date.now()}`, { cache: 'no-store' });
+        const res = await fetch(`/api/admin/verifications?status=ALL&_t=${Date.now()}`, {
+          cache: 'no-store',
+          credentials: 'same-origin',
+        });
+        if (res.status === 401) {
+          router.replace('/admin/login');
+          return;
+        }
         const data = await res.json();
         if (data.success && Array.isArray(data.verifications)) {
           const latestList = data.verifications as VerificationRecord[];

@@ -112,7 +112,11 @@ export const WaitingApprovalModal: React.FC<WaitingApprovalModalProps> = ({
           checkStatus();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          supabase?.removeChannel(channel);
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);

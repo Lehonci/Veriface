@@ -99,7 +99,7 @@ export async function initVerifaceEngine(): Promise<void> {
       const policyFetch = refreshVerifaceRuntimeConfig();
 
       if (!onnxSession) {
-        ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
+        ort.env.wasm.wasmPaths = '/wasm/ort/';
         const modelRes = await fetch('/models/veriface_liveness.onnx', { cache: 'no-store' });
         if (!modelRes.ok) {
           throw new Error(`Gagal memuat model ONNX (HTTP ${modelRes.status})`);
@@ -250,11 +250,11 @@ export async function evaluateVideoFrame(
   const occThreshold = modelConfig?.occlusion_hold_threshold ?? 0.5;
   const liveThreshold = getActiveThresholdValue(options?.livenessMode);
 
-  // Cek Gate Aksesoris (Masker / Penutup Wajah -> HOLD)
+  // Cek Gate Aksesoris (Masker / Kacamata -> HOLD)
   if (occlusionProb >= occThreshold) {
     return {
       status: 'HOLD_OCCLUSION',
-      message: 'Harap lepas masker atau penutup wajah Anda terlebih dahulu.',
+      message: 'Harap lepas masker atau kacamata Anda terlebih dahulu.',
       livenessScore: livenessProb,
       occlusionScore: occlusionProb,
       luma: meanLuma,
