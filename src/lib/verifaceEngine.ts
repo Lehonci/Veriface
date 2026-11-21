@@ -206,6 +206,7 @@ export async function evaluateVideoFrame(
 
   const livenessProb = sigmoid(livenessLogit);
   const occlusionProb = sigmoid(occlusionLogit);
+  console.log('CEK ONNX:', { livenessProb, occlusionProb });
 
   const occThreshold = modelConfig?.occlusion_hold_threshold ?? 0.5;
   const liveThreshold = modelConfig?.threshold ?? 0.85;

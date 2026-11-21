@@ -11,34 +11,36 @@ export interface FacialAccessoryCheckResult {
 
 /**
  * Ratio of pixels with a strong vertical luminance gradient inside a normalized
- * video region. Skin below the eyes is smooth, while a glasses lower rim
+ * video region. Skin below the eyes is smooth, while a glasses lower rim or bridge
  * creates a clear horizontal edge.
  */
-function lowerRimEdgeRatio(
+function horizontalEdgeRatio(
   video: HTMLVideoElement,
   x0: number,
   x1: number,
   y0: number,
-  y1: number
-): number {
+  y1: number,
+  gradThreshold: number = 36
+): { edgeRatio: number; darkRatio: number } {
   const w = 48;
   const h = 24;
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return 0;
+  if (!ctx) return { edgeRatio: 0, darkRatio: 0 };
 
   const vw = video.videoWidth;
   const vh = video.videoHeight;
-  const sx = Math.min(x0, x1) * vw;
+  const sx = Math.max(0, Math.min(x0, x1) * vw);
   const sw = Math.max(8, Math.abs(x1 - x0) * vw);
-  const sy = Math.min(y0, y1) * vh;
+  const sy = Math.max(0, Math.min(y0, y1) * vh);
   const sh = Math.max(8, Math.abs(y1 - y0) * vh);
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
   const d = ctx.getImageData(0, 0, w, h).data;
 
   let edges = 0;
+  let darks = 0;
   let total = 0;
   for (let y = 0; y < h - 2; y++) {
     for (let x = 0; x < w; x++) {
@@ -46,16 +48,20 @@ function lowerRimEdgeRatio(
       const b = ((y + 2) * w + x) * 4;
       const la = 0.299 * d[a] + 0.587 * d[a + 1] + 0.114 * d[a + 2];
       const lb = 0.299 * d[b] + 0.587 * d[b + 1] + 0.114 * d[b + 2];
-      if (Math.abs(la - lb) > 28) edges++;
+      if (Math.abs(la - lb) > gradThreshold) edges++;
+      if (la < 45) darks++;
       total++;
     }
   }
-  return total > 0 ? edges / total : 0;
+  return {
+    edgeRatio: total > 0 ? edges / total : 0,
+    darkRatio: total > 0 ? darks / total : 0,
+  };
 }
 
 /**
- * Checks for facial accessories (glasses, sunglasses, face mask, thick covering)
- * using MediaPipe 468/478 face landmarks and eye-region pixel analysis.
+ * Checks for facial accessories (glasses, sunglasses, face mask)
+ * using MediaPipe 468/478 face landmarks and localized pixel analysis.
  */
 export function checkFacialAccessories(
   landmarks: LandmarkPoint[],
@@ -75,10 +81,7 @@ export function checkFacialAccessories(
   let hasGlasses = false;
   let hasMask = false;
 
-  // 1. Check Mask / Mouth Cover:
-  // In a normal face, the mouth has distinct lip contours and pigmentation.
-  // When a real mask (surgical, cloth, N95) is worn, the mouth is physically occluded by opaque fabric
-  // which lacks lip pigmentation and normal lip-seam contrast.
+  // 1. Check Mask / Mouth Cover
   const outerUpperLip = landmarks[0];
   const outerLowerLip = landmarks[17];
   const mouthCornerLeft = landmarks[61];
@@ -86,7 +89,16 @@ export function checkFacialAccessories(
   const chin = landmarks[152];
   const noseTip = landmarks[1];
 
-  if (videoElement && videoElement.videoWidth > 0 && outerUpperLip && outerLowerLip && mouthCornerLeft && mouthCornerRight && chin && noseTip) {
+  if (
+    videoElement &&
+    videoElement.videoWidth > 0 &&
+    outerUpperLip &&
+    outerLowerLip &&
+    mouthCornerLeft &&
+    mouthCornerRight &&
+    chin &&
+    noseTip
+  ) {
     try {
       const canvas = document.createElement('canvas');
       canvas.width = 40;
@@ -96,7 +108,6 @@ export function checkFacialAccessories(
         const vw = videoElement.videoWidth;
         const vh = videoElement.videoHeight;
 
-        // Crop the mouth rectangle
         const mx = Math.min(mouthCornerLeft.x, mouthCornerRight.x) * vw;
         const mw = Math.max(10, Math.abs(mouthCornerRight.x - mouthCornerLeft.x) * vw);
         const my = (noseTip.y + (outerUpperLip.y - noseTip.y) * 0.5) * vh;
@@ -117,14 +128,15 @@ export function checkFacialAccessories(
             const b = imgData[idx + 2];
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-            // Check horizontal crease where lips meet
             const belowIdx = ((y + 2) * 40 + x) * 4;
-            const belowLum = 0.299 * imgData[belowIdx] + 0.587 * imgData[belowIdx + 1] + 0.114 * imgData[belowIdx + 2];
+            const belowLum =
+              0.299 * imgData[belowIdx] +
+              0.587 * imgData[belowIdx + 1] +
+              0.114 * imgData[belowIdx + 2];
             if (Math.abs(lum - belowLum) > 22) {
               lipCreaseEdges++;
             }
 
-            // Natural lip vermilion pigment
             if (r > g + 12 && r > b + 12) {
               lipHueCount++;
             }
@@ -132,7 +144,6 @@ export function checkFacialAccessories(
           }
         }
 
-        // Only trigger if both lip pigment and crease are completely absent (covered by fabric/mask)
         if (total > 50 && lipCreaseEdges < 4 && lipHueCount < 3) {
           hasMask = true;
           details.push('Masker / Penutup Mulut');
@@ -143,104 +154,73 @@ export function checkFacialAccessories(
     }
   }
 
-  // 2. Check Glasses / Eyeglasses:
-  // Landmark keypoints around glasses frame:
-  // Nose bridge: 168, 6
-  // Left eye corners: 33 (outer), 133 (inner), right eye corners: 362 (inner), 263 (outer)
-  // Eye contour z-dispersion vs forehead: Glasses frames create elevated z-ridges or edge gradients across nose bridge
-  const bridge = landmarks[168];
-  const noseBase = landmarks[6];
+  // 2. Check Glasses / Eyeglasses (Strict bridge + lower-rim analysis, tanpa diffZ)
+  const bridgeTop = landmarks[168];
+  const noseBridgeMid = landmarks[6];
   const leftInnerEye = landmarks[133];
   const rightInnerEye = landmarks[362];
+  const lOuter = landmarks[33];
+  const lLower = landmarks[145];
+  const rOuter = landmarks[263];
+  const rLower = landmarks[374];
 
-  // If video is provided, we can inspect color/edge contrast around the nose bridge and temple frames
-  if (videoElement && videoElement.videoWidth > 0 && bridge && leftInnerEye && rightInnerEye) {
+  if (
+    videoElement &&
+    videoElement.videoWidth > 0 &&
+    bridgeTop &&
+    noseBridgeMid &&
+    leftInnerEye &&
+    rightInnerEye &&
+    lOuter &&
+    lLower &&
+    rOuter &&
+    rLower
+  ) {
     try {
-      const canvas = document.createElement('canvas');
-      canvas.width = 64;
-      canvas.height = 64;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (ctx) {
-        const vw = videoElement.videoWidth;
-        const vh = videoElement.videoHeight;
+      // A. Cek pangkal hidung murni (hanya 60% area tengah di antara 2 sudut dalam mata, tidak kena alis/mata)
+      const innerMinX = Math.min(leftInnerEye.x, rightInnerEye.x);
+      const innerMaxX = Math.max(leftInnerEye.x, rightInnerEye.x);
+      const innerW = innerMaxX - innerMinX;
+      const bridgeH = Math.max(0.015, Math.abs(noseBridgeMid.y - bridgeTop.y));
 
-        // Crop eye bridge and surrounding frames area
-        const minX = Math.min(leftInnerEye.x, rightInnerEye.x) * vw;
-        const maxX = Math.max(leftInnerEye.x, rightInnerEye.x) * vw;
-        const minY = (bridge.y - 0.03) * vh;
-        const boxW = Math.max(10, maxX - minX);
-        const boxH = Math.max(10, (bridge.y + 0.05) * vh - minY);
+      const bridgeStats = horizontalEdgeRatio(
+        videoElement,
+        innerMinX + innerW * 0.2,
+        innerMaxX - innerW * 0.2,
+        bridgeTop.y + bridgeH * 0.15,
+        noseBridgeMid.y + bridgeH * 0.85,
+        38
+      );
+      const hasBridgeBar = bridgeStats.edgeRatio > 0.16 || bridgeStats.darkRatio > 0.28;
 
-        ctx.drawImage(videoElement, minX - boxW * 0.2, minY, boxW * 1.4, boxH, 0, 0, 64, 64);
-        const imgData = ctx.getImageData(0, 0, 64, 64);
-        const data = imgData.data;
+      // B. Cek bingkai bawah kacamata di bawah masing-masing mata (digeser di bawah bulu mata)
+      const leftRim = horizontalEdgeRatio(
+        videoElement,
+        lOuter.x,
+        leftInnerEye.x,
+        lLower.y + 0.018,
+        lLower.y + 0.075,
+        36
+      );
+      const rightRim = horizontalEdgeRatio(
+        videoElement,
+        rightInnerEye.x,
+        rOuter.x,
+        rLower.y + 0.018,
+        rLower.y + 0.075,
+        36
+      );
 
-        // Check horizontal edge gradient across bridge (frames create distinct dark edges or specular highlights)
-        let edgeCount = 0;
-        let darkPixelCount = 0;
-        for (let y = 10; y < 54; y++) {
-          for (let x = 10; x < 54; x++) {
-            const idx = (y * 64 + x) * 4;
-            const r = data[idx];
-            const g = data[idx + 1];
-            const b = data[idx + 2];
-            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      const strongBothLowerRims = leftRim.edgeRatio > 0.16 && rightRim.edgeRatio > 0.16;
+      const bridgeWithRim =
+        hasBridgeBar && (leftRim.edgeRatio > 0.10 || rightRim.edgeRatio > 0.10);
 
-            // Frame edge check
-            const rightIdx = (y * 64 + (x + 2)) * 4;
-            const rightLum = 0.299 * data[rightIdx] + 0.587 * data[rightIdx + 1] + 0.114 * data[rightIdx + 2];
-            if (Math.abs(lum - rightLum) > 55) {
-              edgeCount++;
-            }
-
-            // Dark rim of glasses
-            if (lum < 50) {
-              darkPixelCount++;
-            }
-          }
-        }
-
-        // Eyeglasses detection based on high edge density across the nasal bridge / eye rim
-        if (edgeCount > 90 || darkPixelCount > 250) {
-          hasGlasses = true;
-          details.push('Kacamata');
-        }
-      }
-
-      // Lower rim check: frame edge just below each eye (both eyes must show it)
-      if (!hasGlasses) {
-        const lOuter = landmarks[33];
-        const lLower = landmarks[145];
-        const rOuter = landmarks[263];
-        const rLower = landmarks[374];
-        if (lOuter && lLower && rOuter && rLower) {
-          const leftRatio = lowerRimEdgeRatio(
-            videoElement, lOuter.x, leftInnerEye.x, lLower.y + 0.008, lLower.y + 0.05
-          );
-          const rightRatio = lowerRimEdgeRatio(
-            videoElement, rightInnerEye.x, rOuter.x, rLower.y + 0.008, rLower.y + 0.05
-          );
-          if (leftRatio > 0.12 && rightRatio > 0.12) {
-            hasGlasses = true;
-            details.push('Kacamata');
-          }
-        }
+      if (strongBothLowerRims || bridgeWithRim) {
+        hasGlasses = true;
+        details.push('Kacamata');
       }
     } catch {
-      // Fallback to geometric check if canvas read fails
-    }
-  }
-
-  // Geometric fallback / complementary check:
-  // When wearing glasses, the depth variance between bridge and inner eye socket is distorted
-  if (!hasGlasses && bridge && leftInnerEye && rightInnerEye) {
-    const bridgeZ = bridge.z;
-    const avgEyeZ = (leftInnerEye.z + rightInnerEye.z) / 2;
-    const diffZ = Math.abs(bridgeZ - avgEyeZ);
-    // Glasses push or flatten the detected bridge contour
-    if (diffZ < 0.008 || diffZ > 0.032) {
-      hasGlasses = true;
-      details.push('Kacamata');
+      // Skip jika gagal baca canvas
     }
   }
 
@@ -249,9 +229,11 @@ export function checkFacialAccessories(
 
   if (hasAccessory) {
     if (hasGlasses && hasMask) {
-      reason = 'Terdeteksi penggunaan masker dan kacamata. Mohon lepas atribut penutup wajah untuk verifikasi identitas.';
+      reason =
+        'Terdeteksi penggunaan masker dan kacamata. Mohon lepas atribut penutup wajah untuk verifikasi identitas.';
     } else if (hasGlasses) {
-      reason = 'Terdeteksi atribut kacamata pada wajah. Harap lepas kacamata Anda untuk memastikan identifikasi biometrik yang akurat.';
+      reason =
+        'Terdeteksi atribut kacamata pada wajah. Harap lepas kacamata Anda untuk memastikan identifikasi biometrik yang akurat.';
     } else if (hasMask) {
       reason = 'Terdeteksi penutup wajah / masker. Harap lepas penutup wajah untuk melanjutkan.';
     }

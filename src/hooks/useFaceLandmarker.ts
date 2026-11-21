@@ -259,7 +259,7 @@ export function useFaceLandmarker({
 
               // Cek apakah aksesoris terdeteksi konsisten
               const accessoryCount = accessoryBufferRef.current.filter((a) => a.hasAccessory).length;
-              const hasPersistentAccessory = accessoryCount / (accessoryBufferRef.current.length || 1) >= 0.25;
+              const hasPersistentAccessory = accessoryCount / (accessoryBufferRef.current.length || 1) >= 0.5;
               const mostFrequentReason = accessoryBufferRef.current.find((a) => a.reason)?.reason;
 
               let finalPassed = false;
