@@ -32,16 +32,24 @@ export default function AdminSettingsPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Authentication Guard
+  // Authentication Guard via server HttpOnly session cookie
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const auth = sessionStorage.getItem('admin_auth');
-      if (auth !== 'true') {
-        router.push('/admin/login');
-      } else {
-        setIsAuthenticated(true);
-      }
-    }
+    let active = true;
+    fetch('/api/admin/auth/session', { cache: 'no-store', credentials: 'same-origin' })
+      .then((res) => {
+        if (!active) return;
+        if (!res.ok) {
+          router.replace('/admin/login');
+        } else {
+          setIsAuthenticated(true);
+        }
+      })
+      .catch(() => {
+        if (active) router.replace('/admin/login');
+      });
+    return () => {
+      active = false;
+    };
   }, [router]);
 
   useEffect(() => {

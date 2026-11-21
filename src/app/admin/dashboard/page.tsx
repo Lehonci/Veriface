@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import { VerificationRecord, ZoomSetting } from '@/types';
+import { useZoomMonitor } from '@/hooks/useZoomMonitor';
 import {
   LayoutDashboard,
   ScanFace,
@@ -42,6 +43,11 @@ import {
   Calendar,
   Laptop,
   RotateCcw,
+  Monitor,
+  Camera,
+  Upload,
+  BellRing,
+  Mail,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -59,6 +65,9 @@ function formatNotificationDesc(v: VerificationRecord): string {
   }
   if (v.status === 'VIRTUAL_CAM_BLOCKED') {
     return 'Kamera virtual (OBS/ManyCam) terdeteksi';
+  }
+  if (v.status === 'POOR_LIGHTING') {
+    return v.failure_reason || 'Pencahayaan ruangan kurang terang (BT.601)';
   }
   if (v.status === 'SPOOF_FAILED') {
     return v.failure_reason || 'Terindikasi foto cetak / layar perangkat';
@@ -225,14 +234,21 @@ export default function AdminDashboardPage() {
     record: VerificationRecord;
   } | null>(null);
 
-  // Settings State matching Figma Version 44
+  // Settings State matching Figma Version 44 & Gate Policies
   const [sessionName, setSessionName] = useState('Interview Batch Juni 2026');
   const [meetingUrl, setMeetingUrl] = useState('https://meet.example.com/interview-juni');
-  const [autoRedirect, setAutoRedirect] = useState(true);
+  const [autoRedirect, setAutoRedirect] = useState(false);
+  const [autoAdmitTimeout, setAutoAdmitTimeout] = useState<number>(30);
+  const [adminNotifyEmail, setAdminNotifyEmail] = useState<string>('');
+  const [emailNotificationEnabled, setEmailNotificationEnabled] = useState<boolean>(true);
+  const [livenessMode, setLivenessMode] = useState<'balanced' | 'strict'>('balanced');
   const [blockVirtualCamera, setBlockVirtualCamera] = useState(true);
   const [autoAudit, setAutoAudit] = useState(true);
   const [saveFailSnapshot, setSaveFailSnapshot] = useState(true);
   const [saveSettingsSuccess, setSaveSettingsSuccess] = useState(false);
+  const [desktopNotifPermission, setDesktopNotifPermission] = useState<'default' | 'granted' | 'denied'>('default');
+  const [isCapturingZoom, setIsCapturingZoom] = useState(false);
+  const deepLinkIdRef = React.useRef<string | null>(null);
 
   // History Filter State
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'ALL' | 'PASSED' | 'FAILED'>('ALL');
@@ -243,24 +259,54 @@ export default function AdminDashboardPage() {
   // Chart Time Range Filter: 'today' | '7days' | '30days'
   const [chartTimeRange, setChartTimeRange] = useState<'today' | '7days' | '30days'>('7days');
 
-  // Authentication Guard
+  // Authentication Guard via server HttpOnly session cookie & Deep-Link Parameter Check
   useEffect(() => {
+    let active = true;
+
+    fetch('/api/admin/auth/session', { cache: 'no-store', credentials: 'same-origin' })
+      .then((res) => {
+        if (!active) return;
+        if (!res.ok) {
+          router.replace('/admin/login');
+        } else {
+          setIsAuthenticated(true);
+        }
+      })
+      .catch(() => {
+        if (active) router.replace('/admin/login');
+      });
+
     if (typeof window !== 'undefined') {
-      const auth = sessionStorage.getItem('admin_auth');
-      if (auth !== 'true') {
-        router.push('/admin/login');
-      } else {
-        setIsAuthenticated(true);
+      if ('Notification' in window) {
+        setDesktopNotifPermission(Notification.permission);
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      const idParam = params.get('id');
+      if (tabParam === 'audit' || tabParam === 'riwayat' || tabParam === 'pengaturan' || tabParam === 'dashboard') {
+        setActiveTab(tabParam);
+      }
+      if (idParam) {
+        deepLinkIdRef.current = idParam;
       }
     }
+
+    return () => {
+      active = false;
+    };
   }, [router]);
 
-  const handleLogout = () => {
-    if (typeof window !== 'undefined') {
-      sessionStorage.removeItem('admin_auth');
-      sessionStorage.removeItem('admin_email');
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/admin/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+    } catch {
+      // Tetap lanjutkan redirect ke login
     }
-    router.push('/admin/login');
+    router.replace('/admin/login');
   };
 
   // Fetch initial verifications & settings
@@ -271,27 +317,49 @@ export default function AdminDashboardPage() {
       if (searchQuery) {
         url += `&search=${encodeURIComponent(searchQuery)}`;
       }
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await fetch(url, { cache: 'no-store', credentials: 'same-origin' });
+      if (res.status === 401) {
+        router.replace('/admin/login');
+        return;
+      }
       const data = await res.json();
       if (data.success && data.verifications) {
-        setVerifications(data.verifications);
-        setSelectedRecord((prev) => prev || (data.verifications.length > 0 ? data.verifications[0] : null));
+        const list = data.verifications as VerificationRecord[];
+        setVerifications(list);
+        if (deepLinkIdRef.current) {
+          const match = list.find((v) => v.id === deepLinkIdRef.current);
+          if (match) {
+            setSelectedRecord(match);
+            deepLinkIdRef.current = null;
+          }
+        } else {
+          setSelectedRecord((prev) => prev || (list.length > 0 ? list[0] : null));
+        }
       }
     } catch (err) {
       console.error('Error fetching verifications:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [searchQuery]);
+  }, [searchQuery, router]);
 
   const fetchSettings = async () => {
     try {
-      const res = await fetch('/api/admin/settings');
+      const res = await fetch('/api/admin/settings', { credentials: 'same-origin' });
+      if (res.status === 401) {
+        router.replace('/admin/login');
+        return;
+      }
       const data = await res.json();
       if (data.success && data.settings && data.settings.length > 0) {
         const active = data.settings.find((s: ZoomSetting) => s.is_active) || data.settings[0];
         setSessionName(active.meeting_title);
         setMeetingUrl(active.zoom_url);
+        setAutoRedirect(Boolean(active.auto_redirect));
+        setAutoAdmitTimeout(active.auto_admit_timeout ?? 30);
+        setAdminNotifyEmail(active.admin_notify_email || '');
+        setEmailNotificationEnabled(active.email_notification_enabled ?? true);
+        setLivenessMode(active.liveness_mode === 'strict' ? 'strict' : 'balanced');
       }
     } catch (err) {
       console.warn('Could not load settings:', err);
@@ -329,18 +397,75 @@ export default function AdminDashboardPage() {
     }
   }, []);
 
+  const requestDesktopNotifications = useCallback(async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    try {
+      const perm = await Notification.requestPermission();
+      setDesktopNotifPermission(perm);
+    } catch {
+      // Ignore unsupported browsers
+    }
+  }, []);
+
+  const triggerDesktopNotification = useCallback(
+    (record: VerificationRecord, isAppeal = false) => {
+      if (
+        typeof window === 'undefined' ||
+        !('Notification' in window) ||
+        Notification.permission !== 'granted'
+      ) {
+        return;
+      }
+
+      const title = isAppeal
+        ? `Tinjauan Manual: ${record.full_name}`
+        : record.status === 'PASSED'
+        ? `Verifikasi Valid: ${record.full_name}`
+        : `Alert Spoofing: ${record.full_name}`;
+
+      const body = isAppeal
+        ? `${record.job_position} meminta tinjauan visual untuk masuk ke Zoom.`
+        : formatNotificationDesc(record);
+
+      try {
+        const notif = new Notification(title, {
+          body,
+          tag: `veriface-${record.id}${isAppeal ? '-appeal' : ''}`,
+          requireInteraction: record.status !== 'PASSED' || isAppeal,
+        });
+        notif.onclick = () => {
+          window.focus();
+          setSelectedRecord(record);
+          setActiveTab('audit');
+          notif.close();
+        };
+      } catch {
+        // Ignore notification errors in restricted contexts
+      }
+    },
+    []
+  );
+
   // Handler for incoming verification record (real-time websocket or polling)
   const handleIncomingRecord = useCallback(
-    (newRecord: VerificationRecord) => {
+    (newRecord: VerificationRecord, isAppealUpdate = false) => {
       setVerifications((prev) => {
-        if (prev.some((v) => v.id === newRecord.id)) return prev;
+        const exists = prev.some((v) => v.id === newRecord.id);
+        if (exists) {
+          return prev.map((v) => (v.id === newRecord.id ? { ...v, ...newRecord } : v));
+        }
         return [newRecord, ...prev];
       });
 
-      setSelectedRecord((prev) => prev || newRecord);
+      setSelectedRecord((prev) => {
+        if (!prev) return newRecord;
+        return prev.id === newRecord.id ? { ...prev, ...newRecord } : prev;
+      });
 
       const timeStr = formatNotificationTime(newRecord.created_at);
-      const descStr = formatNotificationDesc(newRecord);
+      const descStr = isAppealUpdate
+        ? 'Mengajukan tinjauan manual admin'
+        : formatNotificationDesc(newRecord);
       const typeStr = getNotificationType(newRecord.status);
 
       setUnreadIds((prev) => new Set(prev).add(newRecord.id));
@@ -355,8 +480,9 @@ export default function AdminDashboardPage() {
       });
 
       playNotificationChime();
+      triggerDesktopNotification(newRecord, isAppealUpdate);
     },
-    [playNotificationChime]
+    [playNotificationChime, triggerDesktopNotification]
   );
 
   // Auto-dismiss floating toast after 6 seconds
@@ -368,7 +494,7 @@ export default function AdminDashboardPage() {
     return () => clearTimeout(timer);
   }, [toastNotification]);
 
-  // Realtime subscription via Supabase WebSocket
+  // Realtime subscription via Supabase WebSocket (INSERT & UPDATE)
   useEffect(() => {
     if (!isAuthenticated || !isSupabaseConfigured || !supabase) return;
 
@@ -379,7 +505,27 @@ export default function AdminDashboardPage() {
         { event: 'INSERT', schema: 'public', table: 'verifications' },
         (payload) => {
           const newRecord = payload.new as VerificationRecord;
-          handleIncomingRecord(newRecord);
+          handleIncomingRecord(newRecord, false);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'verifications' },
+        (payload) => {
+          const updated = payload.new as VerificationRecord;
+          const oldRec = payload.old as Partial<VerificationRecord> | null;
+          const appealTriggered = Boolean(updated.review_requested && !oldRec?.review_requested);
+
+          setVerifications((prev) =>
+            prev.map((v) => (v.id === updated.id ? { ...v, ...updated } : v))
+          );
+          setSelectedRecord((prev) =>
+            prev && prev.id === updated.id ? { ...prev, ...updated } : prev
+          );
+
+          if (appealTriggered) {
+            handleIncomingRecord(updated, true);
+          }
         }
       )
       .subscribe();
@@ -389,7 +535,7 @@ export default function AdminDashboardPage() {
     };
   }, [isAuthenticated, handleIncomingRecord]);
 
-  // Polling fallback (menjamin pembaruan real-time bekerja mulus bahkan dalam mode lokal / in-memory DB)
+  // Polling fallback (menjamin pembaruan real-time & sinkronisasi decision/zoom snapshot bekerja mulus)
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -398,16 +544,35 @@ export default function AdminDashboardPage() {
         const res = await fetch(`/api/admin/verifications?status=ALL&_t=${Date.now()}`, { cache: 'no-store' });
         const data = await res.json();
         if (data.success && Array.isArray(data.verifications)) {
+          const latestList = data.verifications as VerificationRecord[];
+          const latestMap = new Map(latestList.map((v) => [v.id, v]));
+
           setVerifications((prev) => {
-            const existingIds = new Set(prev.map((v) => v.id));
-            const newIncoming = (data.verifications as VerificationRecord[]).filter((v) => !existingIds.has(v.id));
+            const existingMap = new Map(prev.map((v) => [v.id, v]));
+            const newIncoming = latestList.filter((v) => !existingMap.has(v.id));
+
             if (newIncoming.length > 0) {
               newIncoming.forEach((rec) => {
-                handleIncomingRecord(rec);
+                handleIncomingRecord(rec, false);
               });
-              return [...newIncoming, ...prev];
             }
-            return prev;
+
+            // Cek apakah ada pembaruan appeal / decision / zoom_snapshot_url pada rekaman lama
+            latestList.forEach((rec) => {
+              const old = existingMap.get(rec.id);
+              if (old && rec.review_requested && !old.review_requested) {
+                handleIncomingRecord(rec, true);
+              }
+            });
+
+            if (latestList.length === 0) return prev;
+            return latestList;
+          });
+
+          setSelectedRecord((prev) => {
+            if (!prev) return prev;
+            const fresh = latestMap.get(prev.id);
+            return fresh ? { ...prev, ...fresh } : prev;
           });
         }
       } catch {
@@ -428,6 +593,11 @@ export default function AdminDashboardPage() {
           meetingTitle: sessionName,
           zoomUrl: meetingUrl,
           isActive: true,
+          autoRedirect,
+          autoAdmitTimeout,
+          adminNotifyEmail,
+          emailNotificationEnabled,
+          livenessMode,
         }),
       });
       const data = await res.json();
@@ -506,8 +676,126 @@ export default function AdminDashboardPage() {
     });
   }
 
-  const handleDecision = (id: string, decision: 'ADMITTED' | 'REMOVED') => {
+  const handleDecision = async (id: string, decision: 'ADMITTED' | 'REMOVED') => {
     setAdmittedList((prev) => ({ ...prev, [id]: decision }));
+    try {
+      const res = await fetch('/api/admin/verifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action: 'DECISION', decision }),
+      });
+      const data = await res.json();
+      if (data.success && data.verification) {
+        setVerifications((prev) =>
+          prev.map((v) => (v.id === id ? { ...v, ...data.verification } : v))
+        );
+        setSelectedRecord((prev) =>
+          prev && prev.id === id ? { ...prev, ...data.verification } : prev
+        );
+      }
+    } catch (err) {
+      console.error('Failed saving admin decision:', err);
+    }
+  };
+
+  const handleSaveZoomSnapshot = useCallback(
+    async (recordId: string, zoomSnapshotBase64: string) => {
+      const res = await fetch('/api/admin/verifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: recordId,
+          action: 'ZOOM_SNAPSHOT',
+          zoomSnapshotBase64,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const patchFields = {
+          zoom_snapshot_url: data.zoom_snapshot_url,
+          zoom_captured_at: data.zoom_captured_at,
+        };
+        setVerifications((prev) =>
+          prev.map((v) => (v.id === recordId ? { ...v, ...patchFields } : v))
+        );
+        setSelectedRecord((prev) =>
+          prev && prev.id === recordId ? { ...prev, ...patchFields } : prev
+        );
+      }
+    },
+    []
+  );
+
+  // Target kandidat terbaru yang berhak masuk Zoom & belum memiliki snapshot pembanding Zoom
+  const zoomMonitorTarget = React.useMemo(() => {
+    if (
+      activeTab === 'audit' &&
+      selectedRecord &&
+      !selectedRecord.zoom_snapshot_url &&
+      (admittedList[selectedRecord.id] || selectedRecord.admin_decision) !== 'REMOVED' &&
+      (selectedRecord.status === 'PASSED' ||
+        (admittedList[selectedRecord.id] || selectedRecord.admin_decision) === 'ADMITTED' ||
+        selectedRecord.admin_decision === 'AUTO_ADMITTED')
+    ) {
+      return selectedRecord;
+    }
+
+    const recentCutoffMs = Date.now() - 20 * 60 * 1000;
+    return (
+      verifications.find((v) => {
+        const effDecision = admittedList[v.id] || v.admin_decision || 'PENDING';
+        const isEligible =
+          effDecision === 'ADMITTED' ||
+          effDecision === 'AUTO_ADMITTED' ||
+          (v.status === 'PASSED' && effDecision !== 'REMOVED');
+        const refTs = new Date(v.decided_at || v.created_at).getTime();
+        return isEligible && !v.zoom_snapshot_url && refTs >= recentCutoffMs;
+      }) || null
+    );
+  }, [activeTab, selectedRecord, verifications, admittedList]);
+
+  const {
+    isMonitoring: isZoomMonitoring,
+    isStarting: isStartingZoomMonitor,
+    monitorStatus: zoomMonitorStatus,
+    monitorError: zoomMonitorError,
+    startMonitor: startZoomMonitor,
+    stopMonitor: stopZoomMonitor,
+    captureNowForRecord: captureZoomForRecord,
+  } = useZoomMonitor({
+    targetRecord: zoomMonitorTarget,
+    onCaptureZoomSnapshot: handleSaveZoomSnapshot,
+  });
+
+  const handleManualCaptureClick = async (recordId: string) => {
+    setIsCapturingZoom(true);
+    try {
+      await captureZoomForRecord(recordId);
+    } finally {
+      setIsCapturingZoom(false);
+    }
+  };
+
+  const handleZoomFileUpload = async (
+    recordId: string,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsCapturingZoom(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        if (typeof reader.result === 'string') {
+          await handleSaveZoomSnapshot(recordId, reader.result);
+        }
+        setIsCapturingZoom(false);
+      };
+      reader.onerror = () => setIsCapturingZoom(false);
+      reader.readAsDataURL(file);
+    } catch {
+      setIsCapturingZoom(false);
+    }
   };
 
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
@@ -797,9 +1085,65 @@ export default function AdminDashboardPage() {
         {/* Main Content Area */}
         <main className="flex-1 flex flex-col gap-6 overflow-x-hidden">
           
-          {/* Top Actions Bar (Search bar removed per request) */}
-          <div className="flex items-center justify-end gap-4 relative z-20">
-            <div className="flex items-center gap-3">
+          {/* Top Actions Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 relative z-20">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* 1-Click Zoom Monitor Pill */}
+              <button
+                type="button"
+                onClick={() => (isZoomMonitoring ? stopZoomMonitor() : startZoomMonitor())}
+                disabled={isStartingZoomMonitor}
+                title={zoomMonitorStatus}
+                className={`px-3.5 py-2 rounded-full text-xs font-bold flex items-center gap-2 border shadow-sm transition-all ${
+                  isZoomMonitoring
+                    ? 'bg-[#EDF9F4] text-[#027A48] border-[#A6F4C5] hover:bg-[#DDF4EA]'
+                    : 'bg-white text-[#2B0E17] border-[#EEDDE2] hover:bg-[#FAF4F6] hover:border-[#9E2648]/40'
+                }`}
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isZoomMonitoring ? 'bg-[#12B76A] animate-pulse' : 'bg-gray-300'
+                  }`}
+                />
+                <Monitor className="w-3.5 h-3.5" />
+                <span>
+                  {isStartingZoomMonitor
+                    ? 'Menghubungkan Zoom...'
+                    : isZoomMonitoring
+                    ? 'Monitor Zoom Aktif'
+                    : 'Hubungkan Zoom (1-Klik)'}
+                </span>
+              </button>
+
+              {/* Desktop Notification Permission Pill */}
+              {desktopNotifPermission !== 'denied' && (
+                <button
+                  type="button"
+                  onClick={requestDesktopNotifications}
+                  className={`px-3.5 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 border shadow-sm transition-all ${
+                    desktopNotifPermission === 'granted'
+                      ? 'bg-[#FBECEF] text-[#9E2648] border-[#9E2648]/25'
+                      : 'bg-white text-[#6B4B55] border-[#EEDDE2] hover:bg-[#FAF4F6]'
+                  }`}
+                  title="Munculkan notifikasi desktop Windows/macOS meski admin sedang membuka aplikasi Zoom"
+                >
+                  <BellRing className="w-3.5 h-3.5" />
+                  <span>
+                    {desktopNotifPermission === 'granted'
+                      ? 'Notif Desktop Aktif'
+                      : 'Aktifkan Notif Desktop'}
+                  </span>
+                </button>
+              )}
+
+              {zoomMonitorError && (
+                <span className="text-[11px] font-medium text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-200">
+                  {zoomMonitorError}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 ml-auto">
               <button
                 onClick={fetchVerifications}
                 className="p-2.5 rounded-full bg-white border border-[#EEDDE2] text-[#6B4B55] hover:text-[#9E2648] hover:bg-[#FAF4F6] shadow-sm transition-all"
@@ -1156,7 +1500,7 @@ export default function AdminDashboardPage() {
                     </div>
                   ) : (
                     verifications.slice(0, 5).map((item) => {
-                      const decision = admittedList[item.id];
+                      const decision = admittedList[item.id] || item.admin_decision;
                       const isSuccess = item.status === 'PASSED';
                       const isBlocked = item.status === 'SPOOF_FAILED' || item.status === 'VIRTUAL_CAM_BLOCKED';
 
@@ -1181,13 +1525,20 @@ export default function AdminDashboardPage() {
                             )}
 
                             <div className="min-w-0">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <h4 className="text-xs sm:text-sm font-bold text-[#2B0E17] truncate">{item.full_name}</h4>
-                                {decision && (
+                                {decision && decision !== 'PENDING' && (
                                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                    decision === 'ADMITTED' ? 'bg-[#EDF9F4] text-[#12B76A]' : 'bg-[#FEE4E2] text-[#F04438]'
+                                    decision === 'ADMITTED' || decision === 'AUTO_ADMITTED'
+                                      ? 'bg-[#EDF9F4] text-[#12B76A]'
+                                      : 'bg-[#FEE4E2] text-[#F04438]'
                                   }`}>
-                                    {decision}
+                                    {decision === 'AUTO_ADMITTED' ? 'AUTO-ADMIT' : decision}
+                                  </span>
+                                )}
+                                {item.review_requested && decision === 'PENDING' && (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#FFF8E6] text-[#F79009] border border-[#FDE8B3]">
+                                    Minta Tinjauan
                                   </span>
                                 )}
                               </div>
@@ -1207,10 +1558,15 @@ export default function AdminDashboardPage() {
                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                 <span>Berhasil</span>
                               </span>
+                            ) : item.status === 'POOR_LIGHTING' ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-semibold">
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                <span>Cahaya Kurang</span>
+                              </span>
                             ) : (
                               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-semibold">
                                 <ShieldCheck className="w-3.5 h-3.5" />
-                                <span>Verifikasi gagal</span>
+                                <span>{isBlocked ? 'Diblokir / Spoof' : 'Verifikasi gagal'}</span>
                               </span>
                             )}
 
@@ -1256,9 +1612,6 @@ export default function AdminDashboardPage() {
           {/* ========================================================================= */}
           {/* TAB 2: AUDIT VISUAL (Matching Figma Version 44) */}
           {/* ========================================================================= */}
-          {/* ========================================================================= */}
-          {/* TAB 2: AUDIT VISUAL (Matching Figma Version 44) */}
-          {/* ========================================================================= */}
           {activeTab === 'audit' && (
             selectedRecord ? (
               <div className="space-y-6">
@@ -1272,67 +1625,204 @@ export default function AdminDashboardPage() {
                     <span>Kembali</span>
                   </button>
 
-                  {admittedList[selectedRecord.id] ? (
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                      admittedList[selectedRecord.id] === 'ADMITTED'
-                        ? 'bg-[#EDF9F4] text-[#12B76A] border border-[#A6F4C5]'
-                        : 'bg-[#FEE4E2] text-[#F04438] border border-[#FECDCA]'
-                    }`}>
-                      &bull; {admittedList[selectedRecord.id] === 'ADMITTED' ? 'Diizinkan masuk' : 'Akses ditolak'}
-                    </span>
-                  ) : selectedRecord.status === 'PASSED' ? (
-                    <span className="px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-bold border border-[#A6F4C5]">
-                      &bull; Berhasil
-                    </span>
-                  ) : (
-                    <span className="px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-bold border border-[#FECDCA]">
-                      &bull; Verifikasi gagal
-                    </span>
-                  )}
+                  {(() => {
+                    const effectiveDecision =
+                      admittedList[selectedRecord.id] || selectedRecord.admin_decision || 'PENDING';
+                    if (effectiveDecision === 'ADMITTED' || effectiveDecision === 'AUTO_ADMITTED') {
+                      return (
+                        <span className="px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-bold border border-[#A6F4C5]">
+                          &bull; {effectiveDecision === 'AUTO_ADMITTED' ? 'Diizinkan otomatis (Timeout)' : 'Diizinkan masuk'}
+                        </span>
+                      );
+                    }
+                    if (effectiveDecision === 'REMOVED') {
+                      return (
+                        <span className="px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-bold border border-[#FECDCA]">
+                          &bull; Akses ditolak
+                        </span>
+                      );
+                    }
+                    if (selectedRecord.review_requested) {
+                      return (
+                        <span className="px-3 py-1 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-bold border border-[#FDE8B3]">
+                          &bull; Mengajukan tinjauan manual
+                        </span>
+                      );
+                    }
+                    return selectedRecord.status === 'PASSED' ? (
+                      <span className="px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-bold border border-[#A6F4C5]">
+                        &bull; Model Valid (Menunggu konfirmasi)
+                      </span>
+                    ) : (
+                      <span className="px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-bold border border-[#FECDCA]">
+                        &bull; Verifikasi gagal
+                      </span>
+                    );
+                  })()}
                 </div>
 
                 {/* Title */}
                 <div>
                   <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2B0E17] tracking-tight">
-                    Tinjau verifikasi
+                    Tinjau verifikasi &amp; Side-by-Side Zoom
                   </h1>
                   <p className="text-xs sm:text-sm text-[#7D5662] mt-0.5">
-                    Validasi bukti visual dan metrik deteksi.
+                    Bandingkan snapshot pre-screening Veriface dengan tangkapan layar langsung dari ruang Zoom.
                   </p>
                 </div>
 
                 {/* 2-Column Inspection Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                  {/* Left Column: Snapshot bukti */}
+                  {/* Left Column: Side-by-Side Comparison */}
                   <div className="lg:col-span-7 bg-white p-6 rounded-[28px] border border-[#F0E4E7] shadow-[0_4px_24px_rgba(0,0,0,0.02)] space-y-4">
-                    <h3 className="text-base font-bold text-[#2B0E17]">Snapshot bukti</h3>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-base font-bold text-[#2B0E17]">Perbandingan Visual (Side-by-Side)</h3>
+                        <p className="text-[11px] text-[#7D5662]">{zoomMonitorStatus}</p>
+                      </div>
+                      <span
+                        className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${
+                          selectedRecord.zoom_snapshot_url
+                            ? 'bg-[#EDF9F4] text-[#12B76A] border-[#A6F4C5]'
+                            : 'bg-[#FAF4F6] text-[#8C3A50] border-[#F0E4E7]'
+                        }`}
+                      >
+                        {selectedRecord.zoom_snapshot_url ? 'Pembanding Zoom Tersedia' : 'Menunggu Snapshot Zoom'}
+                      </span>
+                    </div>
 
-                    <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-[#1E0D13] flex items-center justify-center border border-[#F2E4E8]">
-                      {selectedRecord.snapshot_url ? (
-                        <>
-                          <Image
-                            src={selectedRecord.snapshot_url}
-                            alt={selectedRecord.full_name}
-                            fill
-                            unoptimized
-                            className="object-cover"
-                          />
-                          <div className="absolute bottom-4 left-4 px-3 py-1.5 rounded-full bg-[#12B76A]/90 backdrop-blur-md text-white text-xs font-semibold flex items-center gap-2 shadow-lg">
-                            <ScanFace className="w-4 h-4" />
-                            <span>Wajah terdeteksi</span>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center p-8 text-center text-white/60">
-                          <div className="w-20 h-20 rounded-2xl bg-white/10 flex items-center justify-center text-[#F2D7DE] font-bold text-2xl mb-3 border border-white/15">
-                            {selectedRecord.full_name.substring(0, 2).toUpperCase()}
-                          </div>
-                          <p className="text-sm font-semibold text-white">Tidak Ada Snapshot Bukti</p>
-                          <p className="text-xs text-white/50 mt-1 max-w-xs">
-                            Kandidat lolos uji biometrik tanpa insiden keamanan yang perlu direkam.
-                          </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Panel Kiri: Snapshot Pre-Screening Veriface */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-[#2B0E17]">1. Pre-Screening (Veriface)</span>
+                          <span className="text-[10px] font-mono text-gray-400">
+                            {new Date(selectedRecord.created_at).toLocaleTimeString('id-ID', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
                         </div>
-                      )}
+                        <div
+                          onClick={() => selectedRecord.snapshot_url && setModalSnapshot(selectedRecord.snapshot_url)}
+                          className={`relative w-full aspect-square rounded-2xl overflow-hidden bg-[#1E0D13] flex items-center justify-center border border-[#F2E4E8] ${
+                            selectedRecord.snapshot_url ? 'cursor-pointer group' : ''
+                          }`}
+                        >
+                          {selectedRecord.snapshot_url ? (
+                            <>
+                              <Image
+                                src={selectedRecord.snapshot_url}
+                                alt={`${selectedRecord.full_name} - Veriface`}
+                                fill
+                                unoptimized
+                                className="object-cover group-hover:scale-105 transition-transform duration-300"
+                              />
+                              <div className="absolute bottom-3 left-3 px-2.5 py-1 rounded-full bg-[#12B76A]/90 backdrop-blur-md text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-lg">
+                                <ScanFace className="w-3.5 h-3.5" />
+                                <span>{selectedRecord.status === 'PASSED' ? 'Liveness Valid' : 'Anomali AI'}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center p-6 text-center text-white/60">
+                              <div className="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center text-[#F2D7DE] font-bold text-xl mb-2 border border-white/15">
+                                {selectedRecord.full_name.substring(0, 2).toUpperCase()}
+                              </div>
+                              <p className="text-xs font-semibold text-white">Tidak Ada Snapshot</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Panel Kanan: Snapshot Live di Zoom */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-[#2B0E17]">2. Live di Ruang Zoom</span>
+                          <span className="text-[10px] font-mono text-gray-400">
+                            {selectedRecord.zoom_captured_at
+                              ? new Date(selectedRecord.zoom_captured_at).toLocaleTimeString('id-ID', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : 'Belum direkam'}
+                          </span>
+                        </div>
+                        <div
+                          onClick={() =>
+                            selectedRecord.zoom_snapshot_url && setModalSnapshot(selectedRecord.zoom_snapshot_url)
+                          }
+                          className={`relative w-full aspect-square rounded-2xl overflow-hidden bg-[#1E0D13] flex items-center justify-center border border-[#F2E4E8] ${
+                            selectedRecord.zoom_snapshot_url ? 'cursor-pointer group' : ''
+                          }`}
+                        >
+                          {selectedRecord.zoom_snapshot_url ? (
+                            <>
+                              <Image
+                                src={selectedRecord.zoom_snapshot_url}
+                                alt={`${selectedRecord.full_name} - Zoom`}
+                                fill
+                                unoptimized
+                                className="object-cover group-hover:scale-105 transition-transform duration-300"
+                              />
+                              <div className="absolute bottom-3 left-3 px-2.5 py-1 rounded-full bg-[#9E2648]/90 backdrop-blur-md text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-lg">
+                                <Video className="w-3.5 h-3.5" />
+                                <span>Tangkapan Zoom</span>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center p-5 text-center text-white/75 space-y-2">
+                              <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/15 flex items-center justify-center text-[#F2D7DE]">
+                                <Monitor className="w-6 h-6" />
+                              </div>
+                              <p className="text-xs font-semibold text-white">
+                                {isZoomMonitoring ? 'Menunggu Wajah di Zoom...' : 'Snapshot Zoom Belum Diambil'}
+                              </p>
+                              <p className="text-[11px] text-white/55 leading-relaxed">
+                                {isZoomMonitoring
+                                  ? 'Otomatis tertangkap begitu kamera kandidat menyala di Zoom.'
+                                  : 'Aktifkan Monitor Zoom (1-Klik) agar otomatis capture, atau ambil manual di bawah.'}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Toolbar Capture Zoom */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#F7ECEF]">
+                      <span className="text-[11px] text-[#7D5662]">
+                        Cocokkan wajah kiri (Veriface) &amp; kanan (Zoom) untuk memastikan bukan joki.
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleManualCaptureClick(selectedRecord.id)}
+                          disabled={isCapturingZoom || isStartingZoomMonitor}
+                          className="px-3.5 py-2 rounded-xl bg-[#9E2648] hover:bg-[#821E3A] text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>
+                            {isCapturingZoom
+                              ? 'Menangkap...'
+                              : selectedRecord.zoom_snapshot_url
+                              ? 'Ambil Ulang dari Zoom'
+                              : isZoomMonitoring
+                              ? 'Ambil Sekarang'
+                              : 'Hubungkan & Capture Zoom'}
+                          </span>
+                        </button>
+
+                        <label className="px-3 py-2 rounded-xl bg-[#FAF4F6] hover:bg-[#FBECEF] text-[#9E2648] border border-[#F0E4E7] text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>Upload Foto</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleZoomFileUpload(selectedRecord.id, e)}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
                     </div>
                   </div>
 
@@ -1421,31 +1911,37 @@ export default function AdminDashboardPage() {
 
                     {/* Action Buttons */}
                     <div className="space-y-3 pt-4 border-t border-[#F7ECEF]">
-                      <div className="grid grid-cols-2 gap-3">
-                        <button
-                          onClick={() => handleDecision(selectedRecord.id, 'ADMITTED')}
-                          className={`w-full py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-                            admittedList[selectedRecord.id] === 'ADMITTED'
-                              ? 'bg-[#12B76A] text-white shadow-md shadow-[#12B76A]/20'
-                              : 'bg-[#EDF9F4] text-[#12B76A] hover:bg-[#DDF4EA] border border-[#A6F4C5]'
-                          }`}
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Izinkan masuk</span>
-                        </button>
+                      {(() => {
+                        const effectiveDecision =
+                          admittedList[selectedRecord.id] || selectedRecord.admin_decision;
+                        return (
+                          <div className="grid grid-cols-2 gap-3">
+                            <button
+                              onClick={() => handleDecision(selectedRecord.id, 'ADMITTED')}
+                              className={`w-full py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                                effectiveDecision === 'ADMITTED'
+                                  ? 'bg-[#12B76A] text-white shadow-md shadow-[#12B76A]/20'
+                                  : 'bg-[#EDF9F4] text-[#12B76A] hover:bg-[#DDF4EA] border border-[#A6F4C5]'
+                              }`}
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Izinkan masuk</span>
+                            </button>
 
-                        <button
-                          onClick={() => handleDecision(selectedRecord.id, 'REMOVED')}
-                          className={`w-full py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-                            admittedList[selectedRecord.id] === 'REMOVED'
-                              ? 'bg-[#F04438] text-white shadow-md shadow-[#F04438]/20'
-                              : 'bg-[#FEE4E2] text-[#F04438] hover:bg-[#FCD4D0] border border-[#FECDCA]'
-                          }`}
-                        >
-                          <AlertTriangle className="w-4 h-4" />
-                          <span>Tolak akses</span>
-                        </button>
-                      </div>
+                            <button
+                              onClick={() => handleDecision(selectedRecord.id, 'REMOVED')}
+                              className={`w-full py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                                effectiveDecision === 'REMOVED'
+                                  ? 'bg-[#F04438] text-white shadow-md shadow-[#F04438]/20'
+                                  : 'bg-[#FEE4E2] text-[#F04438] hover:bg-[#FCD4D0] border border-[#FECDCA]'
+                              }`}
+                            >
+                              <AlertTriangle className="w-4 h-4" />
+                              <span>Tolak akses</span>
+                            </button>
+                          </div>
+                        );
+                      })()}
 
                       <button
                         onClick={() => handleDeleteRecord(selectedRecord.id)}
@@ -1492,8 +1988,15 @@ export default function AdminDashboardPage() {
 
                   <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
                     <p className="text-xs font-medium text-[#7D5662]">Keputusan manual</p>
-                    <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{Object.keys(admittedList).length}</h3>
-                    <p className="text-[11px] font-medium text-gray-400 mt-1">{Object.keys(admittedList).length} tindakan host diambil</p>
+                    <h3 className="text-2xl font-black text-[#2B0E17] mt-1">
+                      {
+                        verifications.filter((v) => {
+                          const d = admittedList[v.id] || v.admin_decision;
+                          return d === 'ADMITTED' || d === 'REMOVED';
+                        }).length
+                      }
+                    </h3>
+                    <p className="text-[11px] font-medium text-gray-400 mt-1">Tindakan host tersimpan permanen</p>
                   </div>
                 </div>
 
@@ -1519,7 +2022,7 @@ export default function AdminDashboardPage() {
                       verifications.map((item) => {
                         const isBlocked = item.status === 'SPOOF_FAILED' || item.status === 'VIRTUAL_CAM_BLOCKED';
                         const isPassed = item.status === 'PASSED';
-                        const decision = admittedList[item.id];
+                        const decision = admittedList[item.id] || item.admin_decision;
                         return (
                           <div
                             key={item.id}
@@ -1538,13 +2041,25 @@ export default function AdminDashboardPage() {
                               )}
 
                               <div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <h4 className="text-xs sm:text-sm font-bold text-[#2B0E17]">{item.full_name}</h4>
-                                  {decision && (
+                                  {decision && decision !== 'PENDING' && (
                                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                      decision === 'ADMITTED' ? 'bg-[#EDF9F4] text-[#12B76A]' : 'bg-[#FEE4E2] text-[#F04438]'
+                                      decision === 'ADMITTED' || decision === 'AUTO_ADMITTED'
+                                        ? 'bg-[#EDF9F4] text-[#12B76A]'
+                                        : 'bg-[#FEE4E2] text-[#F04438]'
                                     }`}>
-                                      {decision}
+                                      {decision === 'AUTO_ADMITTED' ? 'AUTO-ADMIT' : decision}
+                                    </span>
+                                  )}
+                                  {item.review_requested && decision === 'PENDING' && (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#FFF8E6] text-[#F79009] border border-[#FDE8B3]">
+                                      Minta Tinjauan
+                                    </span>
+                                  )}
+                                  {item.zoom_snapshot_url && (
+                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#FBECEF] text-[#9E2648]">
+                                      Zoom Tersimpan
                                     </span>
                                   )}
                                 </div>
@@ -1568,9 +2083,13 @@ export default function AdminDashboardPage() {
                                 <span className="px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-semibold">
                                   &bull; Berhasil
                                 </span>
+                              ) : item.status === 'POOR_LIGHTING' ? (
+                                <span className="px-3 py-1 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-semibold">
+                                  &bull; Pencahayaan Kurang
+                                </span>
                               ) : (
                                 <span className="px-3 py-1 rounded-full bg-[#FEE4E2] text-[#F04438] text-xs font-semibold">
-                                  &bull; Verifikasi gagal
+                                  &bull; {isBlocked ? 'Diblokir / Spoof' : 'Verifikasi gagal'}
                                 </span>
                               )}
 
@@ -1874,34 +2393,130 @@ export default function AdminDashboardPage() {
                       />
                     </div>
 
-                    <div className="flex items-center justify-between pt-2">
+                    <div className="flex items-center justify-between pt-2 border-t border-[#F7ECEF]">
                       <div>
-                        <h4 className="text-xs font-bold text-[#2B0E17]">Alihkan otomatis</h4>
-                        <p className="text-[11px] text-[#7D5662]">Arahkan pelamar setelah verifikasi berhasil</p>
+                        <h4 className="text-xs font-bold text-[#2B0E17]">Alihkan otomatis langsung</h4>
+                        <p className="text-[11px] text-[#7D5662]">
+                          Jika mati, pelamar menunggu konfirmasi admin sebelum masuk Zoom (Auto-Admit saat timeout).
+                        </p>
                       </div>
                       <input
                         type="checkbox"
                         checked={autoRedirect}
                         onChange={(e) => setAutoRedirect(e.target.checked)}
-                        className="w-5 h-5 accent-[#12B76A] rounded cursor-pointer"
+                        className="w-5 h-5 accent-[#12B76A] rounded cursor-pointer shrink-0"
                       />
+                    </div>
+
+                    {!autoRedirect && (
+                      <div className="p-3.5 rounded-2xl bg-[#FAF4F6] border border-[#F0E4E7] flex items-center justify-between gap-3">
+                        <div>
+                          <h4 className="text-xs font-bold text-[#2B0E17]">Batas tunggu Auto-Admit (PASSED)</h4>
+                          <p className="text-[11px] text-[#7D5662]">
+                            Durasi maksimal pelamar menunggu sebelum otomatis masuk Zoom jika admin tidak merespons.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {[15, 30, 45, 60].map((sec) => (
+                            <button
+                              key={sec}
+                              type="button"
+                              onClick={() => setAutoAdmitTimeout(sec)}
+                              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                autoAdmitTimeout === sec
+                                  ? 'bg-[#8A233E] text-white shadow-sm'
+                                  : 'bg-white text-[#6B4B55] border border-gray-200 hover:bg-[#FBECEF]'
+                              }`}
+                            >
+                              {sec}s
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="p-3.5 rounded-2xl bg-[#FAF4F6] border border-[#F0E4E7] space-y-2">
+                      <div>
+                        <h4 className="text-xs font-bold text-[#2B0E17]">Mode Sensitivitas Model AI (Threshold ONNX)</h4>
+                        <p className="text-[11px] text-[#7D5662]">
+                          Pilih ambang batas skor liveness antara EER seimbang (48.7%) atau keamanan ketat (73.4%).
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setLivenessMode('balanced')}
+                          className={`p-2.5 rounded-xl text-left border transition-all ${
+                            livenessMode === 'balanced'
+                              ? 'bg-[#8A233E] text-white border-[#8A233E] shadow-sm'
+                              : 'bg-white text-[#2B0E17] border-gray-200 hover:bg-[#FBECEF]'
+                          }`}
+                        >
+                          <div className="text-xs font-bold">Seimbang (EER 62.9%)</div>
+                          <div className={`text-[10px] ${livenessMode === 'balanced' ? 'text-white/80' : 'text-[#7D5662]'}`}>
+                            Direkomendasikan · BPCER seimbang
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLivenessMode('strict')}
+                          className={`p-2.5 rounded-xl text-left border transition-all ${
+                            livenessMode === 'strict'
+                              ? 'bg-[#8A233E] text-white border-[#8A233E] shadow-sm'
+                              : 'bg-white text-[#2B0E17] border-gray-200 hover:bg-[#FBECEF]'
+                          }`}
+                        >
+                          <div className="text-xs font-bold">Ketat (70.6%)</div>
+                          <div className={`text-[10px] ${livenessMode === 'strict' ? 'text-white/80' : 'text-[#7D5662]'}`}>
+                            APCER minim · High Security
+                          </div>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Column 2: Kebijakan verifikasi */}
+                {/* Column 2: Kebijakan verifikasi & Notifikasi Email */}
                 <div className="bg-white p-6 sm:p-8 rounded-[28px] border border-[#F0E4E7] shadow-[0_4px_24px_rgba(0,0,0,0.02)] space-y-6">
                   <div className="flex items-start gap-4">
                     <div className="w-10 h-10 rounded-2xl bg-[#FFF8E6] text-[#F79009] flex items-center justify-center shrink-0">
-                      <ScanFace className="w-5 h-5" />
+                      <Mail className="w-5 h-5" />
                     </div>
                     <div>
-                      <h3 className="text-base font-bold text-[#2B0E17]">Kebijakan verifikasi</h3>
-                      <p className="text-xs text-[#7D5662]">Atur respons sistem terhadap hasil pemeriksaan.</p>
+                      <h3 className="text-base font-bold text-[#2B0E17]">Kebijakan &amp; Notifikasi Email (HP)</h3>
+                      <p className="text-xs text-[#7D5662]">Atur pengamanan kamera dan alert real-time via Gmail SMTP.</p>
                     </div>
                   </div>
 
-                  <div className="space-y-5">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-[#F7ECEF]">
+                      <div>
+                        <h4 className="text-xs font-bold text-[#2B0E17]">Kirim notifikasi ke Email / HP</h4>
+                        <p className="text-[11px] text-[#7D5662]">Kirim ringkasan &amp; link audit cepat via Gmail SMTP</p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={emailNotificationEnabled}
+                        onChange={(e) => setEmailNotificationEnabled(e.target.checked)}
+                        className="w-5 h-5 accent-[#12B76A] rounded cursor-pointer"
+                      />
+                    </div>
+
+                    {emailNotificationEnabled && (
+                      <div className="pb-3 border-b border-[#F7ECEF]">
+                        <label className="block text-xs font-semibold text-[#2B0E17] mb-1.5">
+                          Email tujuan notifikasi (Opsional)
+                        </label>
+                        <input
+                          type="email"
+                          value={adminNotifyEmail}
+                          onChange={(e) => setAdminNotifyEmail(e.target.value)}
+                          placeholder="Kosongkan untuk memakai ADMIN_NOTIFY_EMAIL / SMTP_USER"
+                          className="w-full px-4 py-2.5 rounded-2xl border border-gray-200 text-xs text-[#2B0E17] focus:outline-none focus:border-[#9E2648]"
+                        />
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between pb-3 border-b border-[#F7ECEF]">
                       <div>
                         <h4 className="text-xs font-bold text-[#2B0E17]">Blokir kamera virtual</h4>

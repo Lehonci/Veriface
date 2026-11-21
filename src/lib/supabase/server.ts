@@ -8,6 +8,8 @@ const hasRealServiceKey =
   !rawServiceKey.includes('your-service-role') &&
   !rawServiceKey.includes('placeholder');
 
+export const hasSupabaseServiceRole = hasRealServiceKey;
+
 const supabaseServiceKey = hasRealServiceKey
   ? rawServiceKey
   : process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
@@ -15,10 +17,20 @@ const supabaseServiceKey = hasRealServiceKey
     '';
 
 export const isSupabaseServerConfigured = Boolean(
-  supabaseUrl && 
-  supabaseServiceKey && 
+  supabaseUrl &&
+  supabaseServiceKey &&
   !supabaseUrl.includes('your-project-id')
 );
+
+if (isSupabaseServerConfigured && !hasRealServiceKey) {
+  const g = globalThis as unknown as { __verifaceServiceKeyWarned?: boolean };
+  if (!g.__verifaceServiceKeyWarned) {
+    g.__verifaceServiceKeyWarned = true;
+    console.warn(
+      '[VeriFace Security] SUPABASE_SERVICE_ROLE_KEY belum diset di .env.local. Server sedang memakai anon/publishable key fallback — tambahkan SUPABASE_SERVICE_ROLE_KEY sebelum menerapkan RLS hardening ketat!'
+    );
+  }
+}
 
 export const supabaseServer = isSupabaseServerConfigured
   ? createClient(supabaseUrl, supabaseServiceKey, {
@@ -48,12 +60,15 @@ export const mockDB: MockDB = globalForMock.mockDB || {
       zoom_url: 'https://zoom.us/j/89123456789?pwd=interview_interview_2026',
       passcode: 'TECH2026',
       is_active: true,
+      auto_redirect: false,
+      auto_admit_timeout: 30,
+      admin_notify_email: null,
+      email_notification_enabled: true,
+      liveness_mode: 'balanced',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
   ],
 };
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForMock.mockDB = mockDB;
-}
+globalForMock.mockDB = mockDB;

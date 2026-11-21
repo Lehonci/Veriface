@@ -4,6 +4,10 @@ export type VerificationStatus =
   | 'VIRTUAL_CAM_BLOCKED'
   | 'POOR_LIGHTING';
 
+export type AdminDecision = 'PENDING' | 'ADMITTED' | 'REMOVED' | 'AUTO_ADMITTED';
+
+export type LivenessThresholdMode = 'balanced' | 'strict';
+
 export interface ApplicantIdentity {
   fullName: string;
   email: string;
@@ -32,6 +36,11 @@ export interface VerificationRecord {
   luminance_score: number | null;
   confidence_score: number | null;
   snapshot_url: string | null;
+  zoom_snapshot_url?: string | null;
+  zoom_captured_at?: string | null;
+  admin_decision?: AdminDecision | null;
+  decided_at?: string | null;
+  review_requested?: boolean | null;
   ip_address: string | null;
   user_agent: string | null;
   jwt_token_jti: string | null;
@@ -44,16 +53,26 @@ export interface ZoomSetting {
   zoom_url: string;
   passcode: string;
   is_active: boolean;
+  auto_redirect?: boolean;
+  auto_admit_timeout?: number;
+  admin_notify_email?: string | null;
+  email_notification_enabled?: boolean;
+  liveness_mode?: LivenessThresholdMode;
   created_at: string;
   updated_at: string;
 }
 
 export interface VerificationSuccessPayload {
   success: boolean;
-  zoomUrl: string;
+  verificationId?: string;
+  statusToken?: string;
+  requiresApproval?: boolean;
+  adminDecision?: AdminDecision;
+  autoAdmitTimeout?: number;
+  zoomUrl?: string;
   passcode?: string;
-  meetingTitle: string;
-  token: string;
+  meetingTitle?: string;
+  token?: string;
   displayNameGuide: string;
-  expiresIn: number;
+  expiresIn?: number;
 }

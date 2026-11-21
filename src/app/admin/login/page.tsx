@@ -28,20 +28,40 @@ export default function AdminLoginPage() {
   // Forgot password modal state
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
-  const [resetStatus, setResetStatus] = useState<'idle' | 'sending' | 'success'>('idle');
+  const [resetStatus, setResetStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [resetMessage, setResetMessage] = useState<string | null>(null);
 
-  const handleForgotPasswordSubmit = (e: React.FormEvent) => {
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resetEmail || !resetEmail.includes('@')) {
       setResetMessage('Harap masukkan alamat email yang valid.');
       return;
     }
     setResetStatus('sending');
-    setTimeout(() => {
-      setResetStatus('success');
-      setResetMessage(`Tautan pemulihan kata sandi telah dikirim ke ${resetEmail}. Silakan periksa kotak masuk atau spam Anda.`);
-    }, 800);
+    setResetMessage('');
+
+    try {
+      const res = await fetch('/api/admin/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: resetEmail }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setResetStatus('success');
+        setResetMessage(
+          data.message || `Tautan pemulihan kata sandi telah dikirim ke ${resetEmail}.`
+        );
+      } else {
+        setResetStatus('error');
+        setResetMessage(
+          data.message || 'Gagal mengirim tautan pemulihan kata sandi.'
+        );
+      }
+    } catch {
+      setResetStatus('error');
+      setResetMessage('Gagal menghubungi server pemulihan kata sandi.');
+    }
   };
 
   const handleOpenForgotPassword = () => {
@@ -56,18 +76,33 @@ export default function AdminLoginPage() {
     setIsLoading(true);
     setError(null);
 
-    // Accept both demo and realistic inputs
-    if (
-      email.includes('@') &&
-      password.length >= 4
-    ) {
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem('admin_auth', 'true');
-        sessionStorage.setItem('admin_email', email);
+    try {
+      const res = await fetch('/api/admin/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ email, password, rememberMe }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data.success) {
+        setError(data.message || 'Email atau kata sandi administrator tidak valid.');
+        setIsLoading(false);
+        return;
       }
-      router.push('/admin/dashboard');
-    } else {
-      setError('Email atau kata sandi tidak valid.');
+
+      const params =
+        typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      const nextParam = params?.get('next') || '';
+      const safeNext =
+        nextParam.startsWith('/') && !nextParam.startsWith('//')
+          ? nextParam
+          : '/admin/dashboard';
+
+      router.push(safeNext);
+      router.refresh();
+    } catch {
+      setError('Gagal menghubungi server autentikasi.');
       setIsLoading(false);
     }
   };

@@ -1,10 +1,14 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer, mockDB, isSupabaseServerConfigured } from '@/lib/supabase/server';
+import { requireAdminSession } from '@/lib/adminAuth';
 import { VerificationRecord } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAdminSession(req);
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     let records: VerificationRecord[] = [];
 

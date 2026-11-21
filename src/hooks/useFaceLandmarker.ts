@@ -12,14 +12,23 @@ import {
 } from '@/lib/cv/depthVariance';
 import { calculateLuminanceFromVideo, LuminanceResult } from '@/lib/cv/luminance';
 import { checkFacialAccessories, FacialAccessoryCheckResult } from '@/lib/cv/facialAccessories';
-import { evaluateVideoFrame, VerifaceResult } from '@/lib/verifaceEngine';
+import { checkVirtualCamera } from '@/lib/cv/virtualCamera';
+import {
+  evaluateVideoFrame,
+  getActiveThresholdValue,
+  VerifaceResult,
+  VerifaceStatus,
+} from '@/lib/verifaceEngine';
 
 export interface UseFaceLandmarkerOptions {
   videoRef: React.RefObject<HTMLVideoElement>;
   overlayCanvasRef?: React.RefObject<HTMLCanvasElement>;
   isStreaming: boolean;
+  activeDeviceLabel?: string | null;
   onLivenessComplete?: (result: {
     passed: boolean;
+    status: VerifaceStatus;
+    virtualCameraName?: string;
     metrics: {
       depthVariance: number;
       luminanceScore: number;
@@ -51,11 +60,20 @@ export interface UseFaceLandmarkerReturn {
 }
 
 const SAMPLE_DURATION_MS = 2500;
+const ONNX_SAMPLE_INTERVAL_MS = 550;
+
+function computeMedian(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
 
 export function useFaceLandmarker({
   videoRef,
   overlayCanvasRef,
   isStreaming,
+  activeDeviceLabel,
   onLivenessComplete,
 }: UseFaceLandmarkerOptions): UseFaceLandmarkerReturn {
   const [isModelLoading, setIsModelLoading] = useState(true);
@@ -83,6 +101,11 @@ export function useFaceLandmarker({
   const scanStartTimeRef = useRef<number | null>(null);
   const isScanningRef = useRef(false);
   const luminanceSamplesRef = useRef<number[]>([]);
+
+  // Multi-frame ONNX voting refs (Plot Hole #8)
+  const onnxSamplesRef = useRef<VerifaceResult[]>([]);
+  const onnxInFlightPromiseRef = useRef<Promise<VerifaceResult | null> | null>(null);
+  const lastOnnxSampleTimeRef = useRef<number>(0);
 
   // Filter log benign INFO XNNPACK dari MediaPipe WebAssembly agar tidak memicu pop-up merah Next.js Dev Error
   useEffect(() => {
@@ -233,7 +256,34 @@ export function useFaceLandmarker({
           sampleBufferRef.current.push(depthAnalysis);
           accessoryBufferRef.current.push(accessoryResult);
 
-          const elapsed = performance.now() - (scanStartTimeRef.current || performance.now());
+          const mediaStream = video.srcObject as MediaStream | null;
+          const activeTrack = mediaStream?.getVideoTracks?.()[0];
+          const liveTrackLabel = activeDeviceLabel || activeTrack?.label || '';
+
+          // Ambil sampel ONNX non-blocking secara berkala selama 2.5 detik (~4 frame voting)
+          if (
+            !onnxInFlightPromiseRef.current &&
+            nowInMs - lastOnnxSampleTimeRef.current >= ONNX_SAMPLE_INTERVAL_MS
+          ) {
+            lastOnnxSampleTimeRef.current = nowInMs;
+            const promise = evaluateVideoFrame(video, liveTrackLabel, landmarks)
+              .then((res) => {
+                onnxSamplesRef.current.push(res);
+                return res;
+              })
+              .catch((err) => {
+                console.warn('Sampling frame ONNX gagal:', err);
+                return null;
+              })
+              .finally(() => {
+                if (onnxInFlightPromiseRef.current === promise) {
+                  onnxInFlightPromiseRef.current = null;
+                }
+              });
+            onnxInFlightPromiseRef.current = promise;
+          }
+
+          const elapsed = nowInMs - (scanStartTimeRef.current || nowInMs);
           const progress = Math.min(100, Math.round((elapsed / SAMPLE_DURATION_MS) * 100));
           setScanProgress(progress);
 
@@ -241,61 +291,116 @@ export function useFaceLandmarker({
             isScanningRef.current = false;
             setIsScanning(false);
 
-            // Jalankan evaluasi model ONNX MobileNetV3 Multi-Head menggunakan hasil tangkapan MediaPipe
             (async () => {
-              let evalResult: VerifaceResult | null = null;
-              try {
-                evalResult = await evaluateVideoFrame(video, '', landmarks);
-              } catch (err) {
-                console.warn('Evaluasi model ONNX Veriface gagal, fallback ke kalkulasi variansi:', err);
+              // Tunggu inference ONNX yang sedang berjalan, dan pastikan minimal 2 sampel jika memungkinkan
+              if (onnxInFlightPromiseRef.current) {
+                await onnxInFlightPromiseRef.current;
+              }
+              if (onnxSamplesRef.current.length === 0) {
+                try {
+                  const finalSample = await evaluateVideoFrame(video, liveTrackLabel, landmarks);
+                  onnxSamplesRef.current.push(finalSample);
+                } catch (err) {
+                  console.warn('Evaluasi akhir model ONNX gagal:', err);
+                }
               }
 
+              const vcamCheck = await checkVirtualCamera(activeTrack);
+              const onnxSamples = onnxSamplesRef.current;
               const aggregated = aggregateMultiFrameLiveness(sampleBufferRef.current);
+
               const avgLuminance =
                 luminanceSamplesRef.current.length > 0
                   ? luminanceSamplesRef.current.reduce((a, b) => a + b, 0) /
                     luminanceSamplesRef.current.length
                   : 60;
 
-              // Cek apakah aksesoris terdeteksi konsisten
               const accessoryCount = accessoryBufferRef.current.filter((a) => a.hasAccessory).length;
-              const hasPersistentAccessory = accessoryCount / (accessoryBufferRef.current.length || 1) >= 0.5;
+              const hasPersistentAccessory =
+                accessoryCount / (accessoryBufferRef.current.length || 1) >= 0.5;
               const mostFrequentReason = accessoryBufferRef.current.find((a) => a.reason)?.reason;
 
-              let finalPassed = false;
+              const scores = onnxSamples
+                .map((s) => s.livenessScore)
+                .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+              const lumas = onnxSamples
+                .map((s) => s.luma)
+                .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+
+              const medianLiveness =
+                scores.length > 0 ? computeMedian(scores) : aggregated.averageConfidence;
+              const finalLuma =
+                lumas.length > 0
+                  ? Math.round(computeMedian(lumas) * 10) / 10
+                  : Math.round(avgLuminance * 10) / 10;
+
+              const bestSnapshot =
+                [...onnxSamples].reverse().find((s) => Boolean(s.snapshotBase64))?.snapshotBase64;
+
+              const lightHoldCount = onnxSamples.filter((s) => s.status === 'HOLD_LIGHT').length;
+              const occHoldCount = onnxSamples.filter((s) => s.status === 'HOLD_OCCLUSION').length;
+              const vcamBlockedSample = onnxSamples.find((s) => s.status === 'VIRTUAL_CAM_BLOCKED');
+
+              const activeThreshold = getActiveThresholdValue();
+
+              let finalStatus: VerifaceStatus = 'SPOOF_FAILED';
               let finalFailureReason: string | undefined = undefined;
+              let virtualCameraName: string | undefined = undefined;
 
-              if (evalResult) {
-                if (evalResult.status === 'PASSED') {
-                  finalPassed = true;
-                } else {
-                  finalPassed = false;
-                  finalFailureReason = evalResult.message;
-                }
-              } else {
-                finalPassed = aggregated.passed;
-                finalFailureReason = aggregated.primaryFailureReason;
-              }
-
-              if (hasPersistentAccessory && finalPassed) {
-                finalPassed = false;
+              if (vcamBlockedSample || vcamCheck.isVirtual) {
+                finalStatus = 'VIRTUAL_CAM_BLOCKED';
+                virtualCameraName =
+                  vcamCheck.deviceName || liveTrackLabel || 'Virtual Camera Driver';
+                finalFailureReason =
+                  vcamBlockedSample?.message ||
+                  `Driver kamera virtual terdeteksi: ${virtualCameraName}`;
+              } else if (
+                onnxSamples.length > 0 &&
+                lightHoldCount / onnxSamples.length >= 0.5
+              ) {
+                finalStatus = 'HOLD_LIGHT';
+                finalFailureReason =
+                  onnxSamples.find((s) => s.status === 'HOLD_LIGHT')?.message ||
+                  'Pencahayaan ruangan terlalu redup. Pindah ke area yang lebih terang.';
+              } else if (
+                hasPersistentAccessory ||
+                (onnxSamples.length > 0 && occHoldCount / onnxSamples.length >= 0.5)
+              ) {
+                finalStatus = 'HOLD_OCCLUSION';
                 finalFailureReason =
                   mostFrequentReason ||
-                  'Verifikasi ditolak: Terdeteksi atribut pada wajah (kacamata/masker). Wajah harus bebas dari atribut.';
+                  'Terdeteksi atribut pada wajah (kacamata/masker). Harap lepas atribut terlebih dahulu.';
+              } else if (scores.length > 0) {
+                if (medianLiveness >= activeThreshold) {
+                  finalStatus = 'PASSED';
+                } else {
+                  finalStatus = 'SPOOF_FAILED';
+                  finalFailureReason = `Terdeteksi indikasi foto cetak atau layar perangkat (Median ${onnxSamples.length} frame: ${(medianLiveness * 100).toFixed(1)}% < ambang ${(activeThreshold * 100).toFixed(1)}%).`;
+                }
+              } else {
+                // Fallback jika ONNX session gagal terinisialisasi (misal offline WASM)
+                if (aggregated.passed) {
+                  finalStatus = 'PASSED';
+                } else {
+                  finalStatus = 'SPOOF_FAILED';
+                  finalFailureReason = aggregated.primaryFailureReason;
+                }
               }
 
               if (onLivenessComplete) {
                 onLivenessComplete({
-                  passed: finalPassed,
+                  passed: finalStatus === 'PASSED',
+                  status: finalStatus,
+                  virtualCameraName,
                   metrics: {
-                    depthVariance: evalResult?.livenessScore ?? aggregated.medianVariance,
-                    luminanceScore: evalResult?.luma ?? Math.round(avgLuminance * 10) / 10,
-                    confidenceScore: evalResult?.livenessScore ?? aggregated.averageConfidence,
-                    sampleCount: sampleBufferRef.current.length,
-                    failureReason: finalPassed ? undefined : finalFailureReason,
+                    depthVariance: aggregated.medianVariance,
+                    luminanceScore: finalLuma,
+                    confidenceScore: medianLiveness,
+                    sampleCount: Math.max(sampleBufferRef.current.length, onnxSamples.length),
+                    failureReason: finalStatus === 'PASSED' ? undefined : finalFailureReason,
                   },
                   latestLandmarks: landmarks,
-                  snapshotBase64: evalResult?.snapshotBase64,
+                  snapshotBase64: bestSnapshot,
                 });
               }
             })();
@@ -313,7 +418,7 @@ export function useFaceLandmarker({
     }
 
     animationFrameIdRef.current = requestAnimationFrame(runDetection);
-  }, [isStreaming, onLivenessComplete, overlayCanvasRef, videoRef]);
+  }, [isStreaming, activeDeviceLabel, onLivenessComplete, overlayCanvasRef, videoRef]);
 
   useEffect(() => {
     if (isStreaming && !isModelLoading && landmarkerRef.current) {
@@ -332,6 +437,9 @@ export function useFaceLandmarker({
     sampleBufferRef.current = [];
     accessoryBufferRef.current = [];
     luminanceSamplesRef.current = [];
+    onnxSamplesRef.current = [];
+    onnxInFlightPromiseRef.current = null;
+    lastOnnxSampleTimeRef.current = 0;
     scanStartTimeRef.current = performance.now();
     isScanningRef.current = true;
     setIsScanning(true);
@@ -345,6 +453,9 @@ export function useFaceLandmarker({
     sampleBufferRef.current = [];
     accessoryBufferRef.current = [];
     luminanceSamplesRef.current = [];
+    onnxSamplesRef.current = [];
+    onnxInFlightPromiseRef.current = null;
+    lastOnnxSampleTimeRef.current = 0;
     setHasAccessory(false);
     setAccessoryDetails([]);
     setAccessoryReason(null);

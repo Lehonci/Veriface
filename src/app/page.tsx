@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { IdentityForm } from '@/components/IdentityForm';
 import { CameraView } from '@/components/CameraView';
 import { SuccessModal } from '@/components/SuccessModal';
 import { FailureAlert } from '@/components/FailureAlert';
+import { WaitingApprovalModal } from '@/components/WaitingApprovalModal';
 import { useCamera } from '@/hooks/useCamera';
 import { useFaceLandmarker } from '@/hooks/useFaceLandmarker';
 import { checkVirtualCamera } from '@/lib/cv/virtualCamera';
@@ -15,7 +16,7 @@ import {
   VerificationSuccessPayload,
 } from '@/types';
 import { AlertTriangle } from 'lucide-react';
-import { initVerifaceEngine } from '@/lib/verifaceEngine';
+import { initVerifaceEngine, VerifaceStatus } from '@/lib/verifaceEngine';
 import { LandmarkPoint } from '@/lib/cv/depthVariance';
 
 export default function GatewayPage() {
@@ -30,9 +31,22 @@ export default function GatewayPage() {
 
   const [isVerifying, setIsVerifying] = useState(false);
   const [successPayload, setSuccessPayload] = useState<VerificationSuccessPayload | null>(null);
-  const [failureInfo, setFailureInfo] = useState<{ title: string; reason: string } | null>(null);
+  const [failureInfo, setFailureInfo] = useState<{
+    title: string;
+    reason: string;
+    verificationId?: string;
+    statusToken?: string;
+  } | null>(null);
+  const [waitingModalState, setWaitingModalState] = useState<{
+    verificationId: string;
+    statusToken?: string;
+    mode: 'passed' | 'appeal';
+    initialTimeout: number;
+  } | null>(null);
+  const [isRequestingAppeal, setIsRequestingAppeal] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const challengeTokenRef = useRef<string | null>(null);
 
   const {
     videoRef,
@@ -40,7 +54,25 @@ export default function GatewayPage() {
     isLoading: isLoadingCamera,
     error: cameraError,
     startCamera,
+    activeDeviceLabel,
   } = useCamera();
+
+  const issueFreshChallenge = useCallback(async (): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/verify/challenge', {
+        method: 'POST',
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (data.success && data.challengeToken) {
+        challengeTokenRef.current = data.challengeToken;
+        return data.challengeToken as string;
+      }
+    } catch (err) {
+      console.warn('Gagal mengambil token sesi scan:', err);
+    }
+    return null;
+  }, []);
 
   // Prapemuatan model AI ONNX saat halaman dibuka
   useEffect(() => {
@@ -48,6 +80,13 @@ export default function GatewayPage() {
       console.warn('Pre-warming Veriface ONNX Engine in background...', err);
     });
   }, []);
+
+  // Terbitkan scan challenge saat kamera mulai aktif
+  useEffect(() => {
+    if (isStreaming && !challengeTokenRef.current) {
+      issueFreshChallenge();
+    }
+  }, [isStreaming, issueFreshChallenge]);
 
   const {
     isModelLoading,
@@ -69,11 +108,14 @@ export default function GatewayPage() {
     videoRef,
     overlayCanvasRef: canvasRef,
     isStreaming,
+    activeDeviceLabel,
     onLivenessComplete: handleLivenessComplete,
   });
 
   async function handleLivenessComplete(result: {
     passed: boolean;
+    status: VerifaceStatus;
+    virtualCameraName?: string;
     metrics: {
       depthVariance: number;
       luminanceScore: number;
@@ -85,8 +127,21 @@ export default function GatewayPage() {
     snapshotBase64?: string;
   }) {
     setIsVerifying(true);
+    const activeChallenge = challengeTokenRef.current || (await issueFreshChallenge());
+    challengeTokenRef.current = null;
 
     try {
+      // 1. Jika HOLD_OCCLUSION: jangan catat sebagai insiden spoofing/pencahayaan — tahan & minta lepas atribut
+      if (result.status === 'HOLD_OCCLUSION') {
+        setFailureInfo({
+          title: 'Pemindaian Ditahan: Lepas Masker atau Kacamata',
+          reason:
+            result.metrics.failureReason ||
+            'Terdeteksi masker atau kacamata di wajah Anda. Harap lepas terlebih dahulu lalu pindai ulang.',
+        });
+        return;
+      }
+
       let snapshotBase64: string | null = result.snapshotBase64 || null;
       if (!snapshotBase64 && videoRef.current) {
         try {
@@ -98,10 +153,11 @@ export default function GatewayPage() {
         }
       }
 
-      if (result.passed) {
+      if (result.passed && result.status === 'PASSED') {
         const res = await fetch('/api/verify/pass', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
           body: JSON.stringify({
             fullName: identity.fullName,
             email: identity.email,
@@ -110,27 +166,96 @@ export default function GatewayPage() {
             luminanceScore: result.metrics.luminanceScore,
             confidenceScore: result.metrics.confidenceScore,
             snapshotBase64,
+            challengeToken: activeChallenge,
+            virtualCameraDetected: false,
           }),
         });
 
-        const data = await res.json();
+        const data: VerificationSuccessPayload & { message?: string } = await res.json();
         if (data.success) {
-          setSuccessPayload(data);
           setFailureInfo(null);
+          if (data.requiresApproval && data.verificationId) {
+            setWaitingModalState({
+              verificationId: data.verificationId,
+              statusToken: data.statusToken,
+              mode: 'passed',
+              initialTimeout: data.autoAdmitTimeout || 30,
+            });
+          } else {
+            setSuccessPayload(data);
+          }
         } else {
           setFailureInfo({
             title: 'Gagal Memproses Verifikasi',
             reason: data.message || 'Terjadi kesalahan sistem.',
           });
         }
+      } else if (result.status === 'VIRTUAL_CAM_BLOCKED') {
+        const camName = result.virtualCameraName || activeDeviceLabel || 'Virtual Camera Driver';
+        setVirtualCamBlocked(true);
+        setVirtualCamName(camName);
+
+        await fetch('/api/verify/fail', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            fullName: identity.fullName,
+            email: identity.email,
+            jobPosition: identity.jobPosition,
+            status: 'VIRTUAL_CAM_BLOCKED',
+            failureReason: result.metrics.failureReason || `Driver kamera virtual terdeteksi: ${camName}`,
+            depthVariance: result.metrics.depthVariance,
+            luminanceScore: result.metrics.luminanceScore,
+            confidenceScore: result.metrics.confidenceScore,
+            snapshotBase64,
+            challengeToken: activeChallenge,
+          }),
+        }).catch(() => {});
+
+        setFailureInfo({
+          title: 'Akses Diblokir: Kamera Virtual Terdeteksi',
+          reason: `Sistem mendeteksi perangkat kamera virtual (${camName}). Gunakan webcam fisik asli Anda.`,
+        });
+      } else if (result.status === 'HOLD_LIGHT') {
+        const lightReason =
+          result.metrics.failureReason ||
+          'Pencahayaan ruangan terlalu redup. Silakan nyalakan lampu atau arahkan wajah ke sumber cahaya.';
+
+        const failRes = await fetch('/api/verify/fail', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            fullName: identity.fullName,
+            email: identity.email,
+            jobPosition: identity.jobPosition,
+            status: 'POOR_LIGHTING',
+            failureReason: lightReason,
+            depthVariance: result.metrics.depthVariance,
+            luminanceScore: result.metrics.luminanceScore,
+            confidenceScore: result.metrics.confidenceScore,
+            snapshotBase64,
+            challengeToken: activeChallenge,
+          }),
+        });
+        const failData = await failRes.json().catch(() => ({}));
+
+        setFailureInfo({
+          title: 'Verifikasi Ditolak: Pencahayaan Ruangan Kurang',
+          reason: lightReason,
+          verificationId: failData.verificationId,
+          statusToken: failData.statusToken,
+        });
       } else {
         const failReason =
           result.metrics.failureReason ||
           'Wajah tidak terdeteksi sebagai objek 3D asli (terindikasi foto/layar).';
 
-        await fetch('/api/verify/fail', {
+        const failRes = await fetch('/api/verify/fail', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
           body: JSON.stringify({
             fullName: identity.fullName,
             email: identity.email,
@@ -141,21 +266,16 @@ export default function GatewayPage() {
             luminanceScore: result.metrics.luminanceScore,
             confidenceScore: result.metrics.confidenceScore,
             snapshotBase64,
+            challengeToken: activeChallenge,
           }),
         });
-
-        let failureTitle = 'Verifikasi Gagal: Terdeteksi Objek 2D / Spoofing';
-        if (failReason.toLowerCase().includes('kacamata')) {
-          failureTitle = 'Verifikasi Ditolak: Atribut Kacamata Terdeteksi';
-        } else if (failReason.toLowerCase().includes('masker') || failReason.toLowerCase().includes('penutup')) {
-          failureTitle = 'Verifikasi Ditolak: Atribut Masker / Penutup Muka Terdeteksi';
-        } else if (failReason.toLowerCase().includes('cahaya') || failReason.toLowerCase().includes('gelap')) {
-          failureTitle = 'Verifikasi Ditolak: Pencahayaan Ruangan Kurang';
-        }
+        const failData = await failRes.json().catch(() => ({}));
 
         setFailureInfo({
-          title: failureTitle,
+          title: 'Verifikasi Gagal: Terdeteksi Objek 2D / Spoofing',
           reason: failReason,
+          verificationId: failData.verificationId,
+          statusToken: failData.statusToken,
         });
       }
     } catch (err: unknown) {
@@ -169,17 +289,15 @@ export default function GatewayPage() {
     }
   }
 
-  const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identity.email.trim());
-  const isFullNameValid = identity.fullName.trim().length >= 2;
-  const isPositionValid = identity.jobPosition.trim().length >= 2;
-
-  const isFormValid = Boolean(
-    isFullNameValid &&
-    isEmailValid &&
-    isPositionValid
-  );
+  const isFullNameValid = identity.fullName.trim().length > 1;
+  const isEmailValid = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(identity.email.trim());
+  const isPositionValid = identity.jobPosition.trim().length > 1;
+  const isFormValid = isFullNameValid && isEmailValid && isPositionValid;
 
   const handleStartVerification = async () => {
+    setFailureInfo(null);
+    setVirtualCamBlocked(false);
+
     if (!isFullNameValid) {
       alert('Harap isi Nama Lengkap Anda dengan benar.');
       return;
@@ -195,7 +313,7 @@ export default function GatewayPage() {
     if (hasAccessory) {
       alert(
         accessoryReason ||
-        'Terdeteksi atribut pada wajah (kacamata atau masker). Harap lepas atribut terlebih dahulu untuk melanjutkan pemindaian.'
+          'Terdeteksi atribut pada wajah (kacamata atau masker). Harap lepas atribut terlebih dahulu untuk melanjutkan pemindaian.'
       );
       return;
     }
@@ -204,38 +322,40 @@ export default function GatewayPage() {
       return;
     }
 
-    let isVirtual = false;
-    let trackLabel = '';
-    if (videoRef.current && videoRef.current.srcObject) {
-      const ms = videoRef.current.srcObject as MediaStream;
-      const vt = ms.getVideoTracks()[0];
-      if (vt) {
-        trackLabel = vt.label;
-        if (/obs|virtual|manycam|splitcam|vcam|droidcam|iriun|fake/i.test(trackLabel)) {
-          isVirtual = true;
-        }
-      }
+    // Pastikan scan challenge tersedia sebelum verifikasi / pemblokiran kamera virtual
+    if (!challengeTokenRef.current) {
+      await issueFreshChallenge();
     }
 
-    if (isVirtual) {
+    const ms = videoRef.current?.srcObject as MediaStream | null;
+    const vt = ms?.getVideoTracks?.()[0];
+    const vcamResult = await checkVirtualCamera(vt);
+
+    if (vcamResult.isVirtual) {
+      const detectedName = vcamResult.deviceName || activeDeviceLabel || vt?.label || 'Virtual Camera Driver';
       setVirtualCamBlocked(true);
-      setVirtualCamName(trackLabel || 'Virtual Camera Driver');
+      setVirtualCamName(detectedName);
+
+      const failChallenge = challengeTokenRef.current || (await issueFreshChallenge());
+      challengeTokenRef.current = null;
 
       await fetch('/api/verify/fail', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({
           fullName: identity.fullName,
           email: identity.email,
           jobPosition: identity.jobPosition,
           status: 'VIRTUAL_CAM_BLOCKED',
-          failureReason: `Driver kamera virtual terdeteksi: ${trackLabel}`,
+          failureReason: `Driver kamera virtual terdeteksi: ${detectedName}`,
+          challengeToken: failChallenge,
         }),
-      });
+      }).catch(() => {});
       return;
     }
 
-    // Jalankan pemindaian liveness multi-frame MediaPipe & evaluasi ONNX Veriface Model
+    // Jalankan pemindaian liveness multi-frame MediaPipe & voting ONNX Veriface Model
     startLivenessScan();
   };
 
@@ -262,7 +382,42 @@ export default function GatewayPage() {
 
   const handleRetry = () => {
     setFailureInfo(null);
+    setWaitingModalState(null);
+    setVirtualCamBlocked(false);
+    challengeTokenRef.current = null;
+    if (isStreaming) {
+      issueFreshChallenge();
+    }
     resetScan();
+  };
+
+  const handleRequestAppeal = async () => {
+    if (!failureInfo?.verificationId) return;
+    setIsRequestingAppeal(true);
+    try {
+      const res = await fetch('/api/verify/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          verificationId: failureInfo.verificationId,
+          statusToken: failureInfo.statusToken,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setWaitingModalState({
+          verificationId: failureInfo.verificationId,
+          statusToken: failureInfo.statusToken,
+          mode: 'appeal',
+          initialTimeout: data.timeoutSeconds || 60,
+        });
+      }
+    } catch (err) {
+      console.error('Appeal request failed:', err);
+    } finally {
+      setIsRequestingAppeal(false);
+    }
   };
 
   return (
@@ -317,7 +472,7 @@ export default function GatewayPage() {
                 <IdentityForm
                   identity={identity}
                   onChange={(updated) => setIdentity((prev) => ({ ...prev, ...updated }))}
-                  disabled={isScanning || isVerifying || Boolean(successPayload)}
+                  disabled={isScanning || isVerifying || Boolean(successPayload) || Boolean(waitingModalState)}
                   onProceed={handleProceedClick}
                   isStreaming={isStreaming}
                   canProceed={isFormValid && (!isStreaming || (!hasAccessory && faceDetected))}
@@ -353,14 +508,43 @@ export default function GatewayPage() {
             </div>
           </div>
 
-          {failureInfo && (
-            <div className="w-full max-w-5xl">
-              <FailureAlert
-                title={failureInfo.title}
-                reason={failureInfo.reason}
-                onRetry={handleRetry}
-              />
-            </div>
+          {failureInfo && !waitingModalState && !successPayload && (
+            <FailureAlert
+              title={failureInfo.title}
+              reason={failureInfo.reason}
+              onRetry={handleRetry}
+              canAppeal={Boolean(failureInfo.verificationId) && !virtualCamBlocked}
+              isRequestingAppeal={isRequestingAppeal}
+              onRequestAppeal={handleRequestAppeal}
+              isAuditLogged={Boolean(failureInfo.verificationId) || virtualCamBlocked}
+            />
+          )}
+
+          {waitingModalState && (
+            <WaitingApprovalModal
+              verificationId={waitingModalState.verificationId}
+              statusToken={waitingModalState.statusToken}
+              applicantName={identity.fullName}
+              mode={waitingModalState.mode}
+              initialTimeoutSeconds={waitingModalState.initialTimeout}
+              onApproved={(payload) => {
+                setWaitingModalState(null);
+                setFailureInfo(null);
+                setSuccessPayload(payload);
+              }}
+              onRejected={(reason) => {
+                const prevId = waitingModalState.verificationId;
+                const prevSt = waitingModalState.statusToken;
+                setWaitingModalState(null);
+                setFailureInfo({
+                  title: 'Verifikasi Ditolak oleh Administrator',
+                  reason,
+                  verificationId: prevId,
+                  statusToken: prevSt,
+                });
+              }}
+              onCancel={handleRetry}
+            />
           )}
 
           {successPayload && <SuccessModal payload={successPayload} />}

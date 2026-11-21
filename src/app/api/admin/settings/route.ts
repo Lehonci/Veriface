@@ -1,8 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer, mockDB, isSupabaseServerConfigured } from '@/lib/supabase/server';
-import { ZoomSetting } from '@/types';
+import { getActiveZoomConfig } from '@/lib/zoomHelpers';
+import { requireAdminSession } from '@/lib/adminAuth';
+import { LivenessThresholdMode, ZoomSetting } from '@/types';
 
-export async function GET() {
+export const dynamic = 'force-dynamic';
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+export async function GET(req: NextRequest) {
+  const auth = await requireAdminSession(req);
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     if (isSupabaseServerConfigured && supabaseServer) {
       const { data, error } = await supabaseServer
@@ -28,23 +44,60 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAdminSession(req);
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const body = await req.json();
-    const { meetingTitle, zoomUrl, passcode, isActive = true } = body;
+    const {
+      meetingTitle,
+      zoomUrl,
+      passcode,
+      isActive = true,
+      autoRedirect,
+      autoAdmitTimeout,
+      adminNotifyEmail,
+      emailNotificationEnabled,
+      livenessMode,
+    } = body;
 
-    if (!zoomUrl) {
+    if (!zoomUrl || typeof zoomUrl !== 'string' || !isValidHttpUrl(zoomUrl.trim())) {
       return NextResponse.json(
-        { success: false, message: 'URL Zoom Meeting wajib diisi.' },
+        { success: false, message: 'URL Zoom Meeting wajib berupa tautan http/https yang valid.' },
         { status: 400 }
       );
     }
 
+    const current = await getActiveZoomConfig();
+    const resolvedLivenessMode: LivenessThresholdMode =
+      livenessMode === 'strict'
+        ? 'strict'
+        : livenessMode === 'balanced'
+        ? 'balanced'
+        : current.liveness_mode;
+
     const newSetting: ZoomSetting = {
-      id: `zoom_${Date.now()}`,
-      meeting_title: meetingTitle || 'Wawancara Kerja Online',
-      zoom_url: zoomUrl,
-      passcode: passcode || '',
+      id: crypto.randomUUID(),
+      meeting_title: meetingTitle || current.meeting_title || 'Wawancara Kerja Online',
+      zoom_url: zoomUrl.trim(),
+      passcode: passcode !== undefined ? String(passcode) : current.passcode,
       is_active: Boolean(isActive),
+      auto_redirect: autoRedirect !== undefined ? Boolean(autoRedirect) : current.auto_redirect,
+      auto_admit_timeout:
+        autoAdmitTimeout !== undefined
+          ? Math.max(5, Math.min(300, Number(autoAdmitTimeout) || 30))
+          : current.auto_admit_timeout,
+      admin_notify_email:
+        adminNotifyEmail !== undefined
+          ? adminNotifyEmail
+            ? String(adminNotifyEmail).trim()
+            : null
+          : current.admin_notify_email,
+      email_notification_enabled:
+        emailNotificationEnabled !== undefined
+          ? Boolean(emailNotificationEnabled)
+          : current.email_notification_enabled,
+      liveness_mode: resolvedLivenessMode,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -62,6 +115,22 @@ export async function POST(req: NextRequest) {
         .insert([newSetting])
         .select()
         .single();
+
+      // Fallback aman apabila kolom liveness_mode belum ditambahkan lewat SQL migration
+      if (error && error.message && error.message.toLowerCase().includes('liveness_mode')) {
+        const legacySetting = { ...newSetting };
+        delete legacySetting.liveness_mode;
+        const retry = await supabaseServer
+          .from('zoom_settings')
+          .insert([legacySetting])
+          .select()
+          .single();
+        if (retry.error) throw retry.error;
+        return NextResponse.json({
+          success: true,
+          setting: { ...retry.data, liveness_mode: resolvedLivenessMode },
+        });
+      }
 
       if (error) throw error;
       return NextResponse.json({ success: true, setting: data });

@@ -24,11 +24,14 @@ export const SuccessModal: React.FC<SuccessModalProps> = ({ payload }) => {
       console.warn('Confetti error:', e);
     }
 
+    const targetUrl = payload.zoomUrl;
+    if (!targetUrl) return;
+
     const interval = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
-          window.location.href = payload.zoomUrl;
+          window.location.href = targetUrl;
           return 0;
         }
         return prev - 1;
@@ -53,7 +56,11 @@ export const SuccessModal: React.FC<SuccessModalProps> = ({ payload }) => {
 
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-semibold mb-3">
           <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Otentikasi Biometrik Valid</span>
+          <span>
+            {payload.adminDecision === 'ADMITTED'
+              ? 'Disetujui oleh Host / Admin'
+              : 'Otentikasi Biometrik Valid'}
+          </span>
         </div>
 
         <h3 className="text-xl sm:text-2xl font-bold text-[#2B0E17] mb-2 tracking-tight">
@@ -97,7 +104,7 @@ export const SuccessModal: React.FC<SuccessModalProps> = ({ payload }) => {
 
         <div className="flex flex-col gap-3">
           <a
-            href={payload.zoomUrl}
+            href={payload.zoomUrl || '#'}
             target="_blank"
             rel="noopener noreferrer"
             className="w-full py-3.5 rounded-xl font-bold text-sm tracking-wide bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-950/20 flex items-center justify-center gap-2 transition-all active:scale-98"

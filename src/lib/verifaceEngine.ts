@@ -1,5 +1,7 @@
 import * as ort from 'onnxruntime-web';
 import { LandmarkPoint } from '@/lib/cv/depthVariance';
+import { isVirtualCameraLabel } from '@/lib/cv/virtualCamera';
+import { LivenessThresholdMode } from '@/types';
 
 export type VerifaceStatus =
   | 'PASSED'
@@ -16,15 +18,29 @@ export interface VerifaceResult {
   occlusionScore?: number;
   luma?: number;
   snapshotBase64?: string;
+  thresholdUsed?: number;
 }
 
 const IMG_SIZE = 224;
 const DEFAULT_CROP_MARGIN = 2.0; // Sinkron dengan CROP_MARGIN = 2.0 di Colab v4
+const DEFAULT_BALANCED_THRESHOLD = 0.6293023824691772;
+const DEFAULT_STRICT_THRESHOLD = 0.7062336802482605;
 const MEAN = [0.485, 0.456, 0.406];
 const STD = [0.229, 0.224, 0.225];
 
+interface VerifaceModelConfig {
+  crop_margin?: number;
+  threshold?: number;
+  eer_threshold?: number;
+  occlusion_hold_threshold?: number;
+  illumination_gate_bt601?: {
+    min_mean_luma?: number;
+  };
+}
+
 let onnxSession: ort.InferenceSession | null = null;
-let modelConfig: any = null;
+let modelConfig: VerifaceModelConfig | null = null;
+let runtimeLivenessMode: LivenessThresholdMode = 'balanced';
 let initPromise: Promise<void> | null = null;
 
 const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
@@ -33,23 +49,54 @@ export function isEngineReady(): boolean {
   return Boolean(onnxSession && modelConfig);
 }
 
-export function getModelConfig(): any {
+export function getModelConfig(): VerifaceModelConfig | null {
   return modelConfig;
+}
+
+export function getRuntimeLivenessMode(): LivenessThresholdMode {
+  return runtimeLivenessMode;
+}
+
+export function getActiveThresholdValue(modeOverride?: LivenessThresholdMode): number {
+  const mode = modeOverride || runtimeLivenessMode;
+  if (mode === 'strict') {
+    return modelConfig?.threshold ?? DEFAULT_STRICT_THRESHOLD;
+  }
+  return modelConfig?.eer_threshold ?? DEFAULT_BALANCED_THRESHOLD;
+}
+
+export async function refreshVerifaceRuntimeConfig(): Promise<LivenessThresholdMode> {
+  try {
+    const res = await fetch(`/api/verify/config?_t=${Date.now()}`, { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.livenessMode === 'strict' || data.livenessMode === 'balanced') {
+        runtimeLivenessMode = data.livenessMode;
+      }
+    }
+  } catch {
+    // Gunakan mode terakhir jika jaringan sedang offline
+  }
+  return runtimeLivenessMode;
 }
 
 // 1. Inisialisasi Model (Aman dari race condition & anti-cache browser)
 export async function initVerifaceEngine(): Promise<void> {
-  if (onnxSession && modelConfig) return;
+  if (onnxSession && modelConfig) {
+    await refreshVerifaceRuntimeConfig();
+    return;
+  }
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
     try {
-      if (!modelConfig) {
-        const res = await fetch('/models/config.json', { cache: 'no-store' });
-        if (res.ok) {
-          modelConfig = await res.json();
-        }
-      }
+      const configFetch = !modelConfig
+        ? fetch('/models/config.json', { cache: 'no-store' }).then(async (res) => {
+            if (res.ok) modelConfig = await res.json();
+          })
+        : Promise.resolve();
+
+      const policyFetch = refreshVerifaceRuntimeConfig();
 
       if (!onnxSession) {
         ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
@@ -62,6 +109,8 @@ export async function initVerifaceEngine(): Promise<void> {
           executionProviders: ['wasm'],
         });
       }
+
+      await Promise.all([configFetch, policyFetch]);
     } catch (err) {
       console.error('Inisialisasi ONNX Veriface Engine gagal:', err);
     } finally {
@@ -72,34 +121,22 @@ export async function initVerifaceEngine(): Promise<void> {
   return initPromise;
 }
 
-// 2. Deteksi Kamera Virtual (Driver Shield)
+// 2. Deteksi Kamera Virtual (Driver Shield - berbagi daftar pola dari virtualCamera.ts)
 export function isVirtualCamera(deviceLabel: string): boolean {
-  const blacklist = [
-    'obs',
-    'manycam',
-    'droidcam',
-    'vcam',
-    'virtual',
-    'splitcam',
-    'xsplit',
-    'snap camera',
-    'iriun',
-    'camo',
-  ];
-  const lower = (deviceLabel || '').toLowerCase();
-  return blacklist.some((keyword) => lower.includes(keyword));
+  return isVirtualCameraLabel(deviceLabel).isVirtual;
 }
 
 // 3. Evaluasi Frame Video Webcam menggunakan Model ONNX MobileNetV3 Multi-Head
 export async function evaluateVideoFrame(
   video: HTMLVideoElement,
   cameraLabel: string = '',
-  existingLandmarks?: LandmarkPoint[]
+  existingLandmarks?: LandmarkPoint[],
+  options?: { livenessMode?: LivenessThresholdMode }
 ): Promise<VerifaceResult> {
   if (isVirtualCamera(cameraLabel)) {
     return {
       status: 'VIRTUAL_CAM_BLOCKED',
-      message: 'Kamera virtual (OBS/ManyCam) terdeteksi. Gunakan webcam fisik.',
+      message: `Kamera virtual terdeteksi (${cameraLabel}). Gunakan webcam fisik asli.`,
     };
   }
 
@@ -182,7 +219,7 @@ export async function evaluateVideoFrame(
   if (meanLuma < minLuma) {
     return {
       status: 'HOLD_LIGHT',
-      message: `HOLD: Pencahayaan kurang (${meanLuma.toFixed(0)} < ${minLuma}). Cari ruangan lebih terang.`,
+      message: `Pencahayaan ruangan terlalu redup (Luma ${meanLuma.toFixed(0)} < ${minLuma}). Pindah ke ruangan lebih terang atau hadapkan wajah ke sumber cahaya.`,
       luma: meanLuma,
       snapshotBase64,
     };
@@ -211,18 +248,18 @@ export async function evaluateVideoFrame(
   const occlusionProb = sigmoid(occlusionLogit);
 
   const occThreshold = modelConfig?.occlusion_hold_threshold ?? 0.5;
-  const liveThreshold = modelConfig?.threshold ?? 0.85;
-  console.log('CEK ONNX:', { livenessProb, occlusionProb, liveThreshold, occThreshold });
+  const liveThreshold = getActiveThresholdValue(options?.livenessMode);
 
-  // Cek Gate Aksesoris (Masker / Kacamata -> HOLD)
+  // Cek Gate Aksesoris (Masker / Penutup Wajah -> HOLD)
   if (occlusionProb >= occThreshold) {
     return {
       status: 'HOLD_OCCLUSION',
-      message: 'HOLD: Harap lepas masker atau kacamata Anda terlebih dahulu.',
+      message: 'Harap lepas masker atau penutup wajah Anda terlebih dahulu.',
       livenessScore: livenessProb,
       occlusionScore: occlusionProb,
       luma: meanLuma,
       snapshotBase64,
+      thresholdUsed: liveThreshold,
     };
   }
 
@@ -235,15 +272,17 @@ export async function evaluateVideoFrame(
       occlusionScore: occlusionProb,
       luma: meanLuma,
       snapshotBase64,
+      thresholdUsed: liveThreshold,
     };
   } else {
     return {
       status: 'SPOOF_FAILED',
-      message: `SPOOF_FAILED: Terdeteksi indikasi foto cetak atau layar perangkat (Skor: ${(livenessProb * 100).toFixed(1)}%).`,
+      message: `Terdeteksi indikasi foto cetak atau layar perangkat (Skor liveness ${(livenessProb * 100).toFixed(1)}% < ambang ${(liveThreshold * 100).toFixed(1)}%).`,
       livenessScore: livenessProb,
       occlusionScore: occlusionProb,
       luma: meanLuma,
       snapshotBase64,
+      thresholdUsed: liveThreshold,
     };
   }
 }

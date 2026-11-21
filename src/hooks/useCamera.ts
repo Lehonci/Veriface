@@ -9,6 +9,7 @@ export interface UseCameraReturn {
   startCamera: () => Promise<boolean>;
   stopCamera: () => void;
   activeDeviceId: string | null;
+  activeDeviceLabel: string | null;
 }
 
 export function useCamera(): UseCameraReturn {
@@ -18,6 +19,7 @@ export function useCamera(): UseCameraReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeDeviceId, setActiveDeviceId] = useState<string | null>(null);
+  const [activeDeviceLabel, setActiveDeviceLabel] = useState<string | null>(null);
 
   const stopCamera = useCallback(() => {
     if (stream) {
@@ -27,6 +29,8 @@ export function useCamera(): UseCameraReturn {
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    setActiveDeviceId(null);
+    setActiveDeviceLabel(null);
     setIsStreaming(false);
   }, [stream]);
 
@@ -75,6 +79,7 @@ export function useCamera(): UseCameraReturn {
       if (videoTrack) {
         const settings = videoTrack.getSettings();
         setActiveDeviceId(settings.deviceId || null);
+        setActiveDeviceLabel(videoTrack.label || null);
       }
 
       return true;
@@ -114,5 +119,6 @@ export function useCamera(): UseCameraReturn {
     startCamera,
     stopCamera,
     activeDeviceId,
+    activeDeviceLabel,
   };
 }
