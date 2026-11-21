@@ -37,7 +37,7 @@ export function getModelConfig(): any {
   return modelConfig;
 }
 
-// 1. Inisialisasi Model (Aman dari race condition jika dipanggil bersamaan)
+// 1. Inisialisasi Model (Aman dari race condition & anti-cache browser)
 export async function initVerifaceEngine(): Promise<void> {
   if (onnxSession && modelConfig) return;
   if (initPromise) return initPromise;
@@ -53,7 +53,12 @@ export async function initVerifaceEngine(): Promise<void> {
 
       if (!onnxSession) {
         ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
-        onnxSession = await ort.InferenceSession.create('/models/veriface_liveness.onnx', {
+        const modelRes = await fetch('/models/veriface_liveness.onnx', { cache: 'no-store' });
+        if (!modelRes.ok) {
+          throw new Error(`Gagal memuat model ONNX (HTTP ${modelRes.status})`);
+        }
+        const modelBuffer = await modelRes.arrayBuffer();
+        onnxSession = await ort.InferenceSession.create(modelBuffer, {
           executionProviders: ['wasm'],
         });
       }
@@ -138,21 +143,19 @@ export async function evaluateVideoFrame(
     side = Math.max(maxX - minX, maxY - minY) * cropMargin;
   }
 
-  const sx0 = cx - side / 2;
-  const sy0 = cy - side / 2;
+  // Batasi ukuran & posisi crop agar tetap di dalam frame video (mencegah bingkai hitam palsu)
+  const maxSide = Math.min(w, h);
+  side = Math.min(side, maxSide);
 
-  // Crop ke Canvas 224x224 dengan area luar berwarna hitam
+  const sx0 = Math.max(0, Math.min(w - side, cx - side / 2));
+  const sy0 = Math.max(0, Math.min(h - side, cy - side / 2));
+
+  // Crop langsung ke Canvas 224x224 tanpa area hitam di pinggir
   const canvas = document.createElement('canvas');
   canvas.width = IMG_SIZE;
   canvas.height = IMG_SIZE;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, IMG_SIZE, IMG_SIZE);
-
-  const scale = IMG_SIZE / side;
-  ctx.setTransform(scale, 0, 0, scale, -sx0 * scale, -sy0 * scale);
-  ctx.drawImage(video, 0, 0);
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(video, sx0, sy0, side, side, 0, 0, IMG_SIZE, IMG_SIZE);
 
   const imgData = ctx.getImageData(0, 0, IMG_SIZE, IMG_SIZE).data;
   const snapshotBase64 = canvas.toDataURL('image/jpeg', 0.85);
@@ -206,10 +209,10 @@ export async function evaluateVideoFrame(
 
   const livenessProb = sigmoid(livenessLogit);
   const occlusionProb = sigmoid(occlusionLogit);
-  console.log('CEK ONNX:', { livenessProb, occlusionProb });
 
   const occThreshold = modelConfig?.occlusion_hold_threshold ?? 0.5;
   const liveThreshold = modelConfig?.threshold ?? 0.85;
+  console.log('CEK ONNX:', { livenessProb, occlusionProb, liveThreshold, occThreshold });
 
   // Cek Gate Aksesoris (Masker / Kacamata -> HOLD)
   if (occlusionProb >= occThreshold) {
