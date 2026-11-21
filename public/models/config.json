@@ -31,17 +31,17 @@
     "occlusion_logit": "sigmoid(x) >= 0.5 -> HOLD (Harap lepas masker/kacamata)",
     "depth": "Peta kedalaman 3D 28x28"
   },
-  "threshold": 0.7340283393859863,
-  "eer_threshold": 0.48729613423347473,
+  "threshold": 0.7062336802482605,
+  "eer_threshold": 0.6293023824691772,
   "occlusion_hold_threshold": 0.5,
   "illumination_gate_bt601": {
     "min_mean_luma": 50,
     "action_if_below": "HOLD (Pencahayaan kurang)"
   },
   "metrics_iso_30107_3": {
-    "APCER": 0.19005847953216373,
-    "BPCER": 0.14566284779050737,
-    "ACER": 0.16786066366133556
+    "APCER": 0.15789473684210525,
+    "BPCER": 0.15875613747954173,
+    "ACER": 0.15832543716082348
   },
   "benchmark_comparison": [
     {
@@ -66,19 +66,19 @@
       "Paradigma": "Artificial Neural Network (ANN)",
       "Model": "MediaPipe + MLP",
       "Input": "1404 Landmark 3D",
-      "Test AUC": 0.6673,
-      "APCER (%)": 49.71,
-      "BPCER (%)": 26.68,
-      "ACER (%)": 38.19
+      "Test AUC": 0.6852,
+      "APCER (%)": 43.86,
+      "BPCER (%)": 29.3,
+      "ACER (%)": 36.58
     },
     {
       "Paradigma": "Deep Learning (CNN + 3D Depth)",
       "Model": "CNN MobileNetV3 (Proposed / Best)",
       "Input": "Citra RGB 224x224",
-      "Test AUC": 0.9138,
-      "APCER (%)": 19.01,
-      "BPCER (%)": 14.57,
-      "ACER (%)": 16.79
+      "Test AUC": 0.9199,
+      "APCER (%)": 15.79,
+      "BPCER (%)": 15.88,
+      "ACER (%)": 15.83
     }
   ]
 }

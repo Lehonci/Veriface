@@ -9,60 +9,86 @@ export interface FacialAccessoryCheckResult {
   reason?: string;
 }
 
-/**
- * Ratio of pixels with a strong vertical luminance gradient inside a normalized
- * video region. Skin below the eyes is smooth, while a glasses lower rim or bridge
- * creates a clear horizontal edge.
- */
-function horizontalEdgeRatio(
+interface HorizontalBandStats {
+  maxRowGrad: number;
+  maxRowCoverage: number;
+  minRowLum: number;
+  medianRowLum: number;
+  p75RowLum: number;
+}
+
+function analyzeHorizontalBand(
   video: HTMLVideoElement,
   x0: number,
   x1: number,
   y0: number,
-  y1: number,
-  gradThreshold: number = 36
-): { edgeRatio: number; darkRatio: number } {
-  const w = 48;
-  const h = 24;
+  y1: number
+): HorizontalBandStats {
+  const w = 40;
+  const h = 32;
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return { edgeRatio: 0, darkRatio: 0 };
+  if (!ctx) {
+    return { maxRowGrad: 0, maxRowCoverage: 0, minRowLum: 255, medianRowLum: 255, p75RowLum: 255 };
+  }
 
   const vw = video.videoWidth;
   const vh = video.videoHeight;
   const sx = Math.max(0, Math.min(x0, x1) * vw);
-  const sw = Math.max(8, Math.abs(x1 - x0) * vw);
   const sy = Math.max(0, Math.min(y0, y1) * vh);
-  const sh = Math.max(8, Math.abs(y1 - y0) * vh);
+  const sw = Math.max(8, Math.min(vw - sx, Math.abs(x1 - x0) * vw));
+  const sh = Math.max(8, Math.min(vh - sy, Math.abs(y1 - y0) * vh));
+
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
   const d = ctx.getImageData(0, 0, w, h).data;
 
-  let edges = 0;
-  let darks = 0;
-  let total = 0;
+  const rowLums: number[] = [];
+  let maxRowGrad = 0;
+  let maxRowCoverage = 0;
+
+  const xStart = 2;
+  const xEnd = w - 2;
+  const cols = xEnd - xStart;
+
+  for (let y = 0; y < h; y++) {
+    let lumSum = 0;
+    for (let x = xStart; x < xEnd; x++) {
+      const idx = (y * w + x) * 4;
+      lumSum += 0.299 * d[idx] + 0.587 * d[idx + 1] + 0.114 * d[idx + 2];
+    }
+    rowLums.push(lumSum / cols);
+  }
+
   for (let y = 0; y < h - 2; y++) {
-    for (let x = 0; x < w; x++) {
+    let gradSum = 0;
+    let strongCols = 0;
+    for (let x = xStart; x < xEnd; x++) {
       const a = (y * w + x) * 4;
       const b = ((y + 2) * w + x) * 4;
       const la = 0.299 * d[a] + 0.587 * d[a + 1] + 0.114 * d[a + 2];
       const lb = 0.299 * d[b] + 0.587 * d[b + 1] + 0.114 * d[b + 2];
-      if (Math.abs(la - lb) > gradThreshold) edges++;
-      if (la < 45) darks++;
-      total++;
+      const diff = Math.abs(la - lb);
+      gradSum += diff;
+      if (diff > 20) strongCols++;
     }
+    const meanGrad = gradSum / cols;
+    const coverage = strongCols / cols;
+    if (meanGrad > maxRowGrad) maxRowGrad = meanGrad;
+    if (coverage > maxRowCoverage) maxRowCoverage = coverage;
   }
+
+  const sorted = [...rowLums].sort((a, b) => a - b);
   return {
-    edgeRatio: total > 0 ? edges / total : 0,
-    darkRatio: total > 0 ? darks / total : 0,
+    maxRowGrad,
+    maxRowCoverage,
+    minRowLum: sorted[0] ?? 255,
+    medianRowLum: sorted[Math.floor(sorted.length * 0.5)] ?? 255,
+    p75RowLum: sorted[Math.floor(sorted.length * 0.75)] ?? 255,
   };
 }
 
-/**
- * Checks for facial accessories (glasses, sunglasses, face mask)
- * using MediaPipe 468/478 face landmarks and localized pixel analysis.
- */
 export function checkFacialAccessories(
   landmarks: LandmarkPoint[],
   videoElement?: HTMLVideoElement | null
@@ -81,7 +107,7 @@ export function checkFacialAccessories(
   let hasGlasses = false;
   let hasMask = false;
 
-  // 1. Check Mask / Mouth Cover
+  // 1. Check Mask / Mouth Cover (Tahan lipatan masker medis/kain)
   const outerUpperLip = landmarks[0];
   const outerLowerLip = landmarks[17];
   const mouthCornerLeft = landmarks[61];
@@ -108,9 +134,9 @@ export function checkFacialAccessories(
         const vw = videoElement.videoWidth;
         const vh = videoElement.videoHeight;
 
-        const mx = Math.min(mouthCornerLeft.x, mouthCornerRight.x) * vw;
+        const mx = Math.max(0, Math.min(mouthCornerLeft.x, mouthCornerRight.x) * vw);
         const mw = Math.max(10, Math.abs(mouthCornerRight.x - mouthCornerLeft.x) * vw);
-        const my = (noseTip.y + (outerUpperLip.y - noseTip.y) * 0.5) * vh;
+        const my = Math.max(0, (noseTip.y + (outerUpperLip.y - noseTip.y) * 0.5) * vh);
         const mh = Math.max(10, (chin.y - outerUpperLip.y) * 0.7 * vh);
 
         ctx.drawImage(videoElement, mx, my, mw, mh, 0, 0, 40, 30);
@@ -118,6 +144,8 @@ export function checkFacialAccessories(
 
         let lipCreaseEdges = 0;
         let lipHueCount = 0;
+        let coolOrNeutralCount = 0;
+        let darkMaskCount = 0;
         let total = 0;
 
         for (let y = 6; y < 24; y++) {
@@ -137,14 +165,27 @@ export function checkFacialAccessories(
               lipCreaseEdges++;
             }
 
-            if (r > g + 12 && r > b + 12) {
+            // Pigmen merah alami bibir
+            if (r > g + 10 && r > b + 10) {
               lipHueCount++;
+            }
+
+            // Warna masker putih/abu/biru/hijau/hitam tidak memiliki rona kulit hangat
+            if (r - b < 6) {
+              coolOrNeutralCount++;
+            }
+            if (lum < 48) {
+              darkMaskCount++;
             }
             total++;
           }
         }
 
-        if (total > 50 && lipCreaseEdges < 4 && lipHueCount < 3) {
+        const isAchromaticOrDarkMask =
+          total > 50 && (coolOrNeutralCount / total > 0.55 || darkMaskCount / total > 0.55);
+        const isSmoothCoveredMouth = total > 50 && lipCreaseEdges < 6;
+
+        if (total > 50 && lipHueCount < 5 && (isSmoothCoveredMouth || isAchromaticOrDarkMask)) {
           hasMask = true;
           details.push('Masker / Penutup Mulut');
         }
@@ -154,9 +195,9 @@ export function checkFacialAccessories(
     }
   }
 
-  // 2. Check Glasses / Eyeglasses (Strict bridge + lower-rim analysis, tanpa diffZ)
+  // 2. Check Glasses / Eyeglasses (Batas dinaikkan agar tidak nabrak pinggiran atas masker)
   const bridgeTop = landmarks[168];
-  const noseBridgeMid = landmarks[6];
+  const bridgeMid = landmarks[6]; // Tepat di antara dua mata (di atas posisi kawat masker)
   const leftInnerEye = landmarks[133];
   const rightInnerEye = landmarks[362];
   const lOuter = landmarks[33];
@@ -168,7 +209,8 @@ export function checkFacialAccessories(
     videoElement &&
     videoElement.videoWidth > 0 &&
     bridgeTop &&
-    noseBridgeMid &&
+    bridgeMid &&
+    noseTip &&
     leftInnerEye &&
     rightInnerEye &&
     lOuter &&
@@ -177,47 +219,70 @@ export function checkFacialAccessories(
     rLower
   ) {
     try {
-      // A. Cek pangkal hidung murni (hanya 60% area tengah di antara 2 sudut dalam mata, tidak kena alis/mata)
+      // A. Cek pangkal hidung tepat di antara dua sudut dalam mata (168 -> 6)
       const innerMinX = Math.min(leftInnerEye.x, rightInnerEye.x);
       const innerMaxX = Math.max(leftInnerEye.x, rightInnerEye.x);
       const innerW = innerMaxX - innerMinX;
-      const bridgeH = Math.max(0.015, Math.abs(noseBridgeMid.y - bridgeTop.y));
+      const bridgeBottomY = bridgeMid.y + Math.max(0.012, (bridgeMid.y - bridgeTop.y) * 0.6);
 
-      const bridgeStats = horizontalEdgeRatio(
+      const bridge = analyzeHorizontalBand(
         videoElement,
         innerMinX + innerW * 0.2,
         innerMaxX - innerW * 0.2,
-        bridgeTop.y + bridgeH * 0.15,
-        noseBridgeMid.y + bridgeH * 0.85,
-        38
+        bridgeTop.y,
+        bridgeBottomY
       );
-      const hasBridgeBar = bridgeStats.edgeRatio > 0.16 || bridgeStats.darkRatio > 0.28;
+      const bridgeDrop = bridge.p75RowLum - bridge.minRowLum;
+      const hasBridge =
+        (bridge.maxRowGrad > 18 && bridge.maxRowCoverage > 0.45) ||
+        (bridgeDrop > 28 && bridge.maxRowGrad > 14);
+      const hasVeryStrongBridge = bridgeDrop > 42 && bridge.maxRowGrad > 22;
 
-      // B. Cek bingkai bawah kacamata di bawah masing-masing mata (digeser di bawah bulu mata)
-      const leftRim = horizontalEdgeRatio(
-        videoElement,
-        lOuter.x,
-        leftInnerEye.x,
-        lLower.y + 0.018,
-        lLower.y + 0.075,
-        36
-      );
-      const rightRim = horizontalEdgeRatio(
-        videoElement,
-        rightInnerEye.x,
-        rOuter.x,
-        rLower.y + 0.018,
-        rLower.y + 0.075,
-        36
-      );
+      if (hasMask) {
+        // Jika sedang memakai masker, abaikan cek pipi bawah agar pinggiran masker tidak kebaca kacamata
+        if (hasVeryStrongBridge) {
+          hasGlasses = true;
+          details.push('Kacamata');
+        }
+      } else {
+        // B. Cek bingkai bawah proporsional terhadap tinggi mata-ke-hidung
+        const avgLowerEyeY = (lLower.y + rLower.y) / 2;
+        const eyeToNose = Math.max(0.05, Math.abs(noseTip.y - avgLowerEyeY));
 
-      const strongBothLowerRims = leftRim.edgeRatio > 0.16 && rightRim.edgeRatio > 0.16;
-      const bridgeWithRim =
-        hasBridgeBar && (leftRim.edgeRatio > 0.10 || rightRim.edgeRatio > 0.10);
+        const lMinX = Math.min(lOuter.x, leftInnerEye.x);
+        const lMaxX = Math.max(lOuter.x, leftInnerEye.x);
+        const lPad = (lMaxX - lMinX) * 0.08;
 
-      if (strongBothLowerRims || bridgeWithRim) {
-        hasGlasses = true;
-        details.push('Kacamata');
+        const rMinX = Math.min(rightInnerEye.x, rOuter.x);
+        const rMaxX = Math.max(rightInnerEye.x, rOuter.x);
+        const rPad = (rMaxX - rMinX) * 0.08;
+
+        const leftRim = analyzeHorizontalBand(
+          videoElement,
+          lMinX + lPad,
+          lMaxX - lPad,
+          lLower.y + eyeToNose * 0.22,
+          lLower.y + eyeToNose * 0.95
+        );
+        const rightRim = analyzeHorizontalBand(
+          videoElement,
+          rMinX + rPad,
+          rMaxX - rPad,
+          rLower.y + eyeToNose * 0.22,
+          rLower.y + eyeToNose * 0.95
+        );
+
+        const leftHasRim =
+          (leftRim.maxRowGrad > 18 && leftRim.maxRowCoverage > 0.45) ||
+          (leftRim.medianRowLum - leftRim.minRowLum > 26 && leftRim.maxRowGrad > 13);
+        const rightHasRim =
+          (rightRim.maxRowGrad > 18 && rightRim.maxRowCoverage > 0.45) ||
+          (rightRim.medianRowLum - rightRim.minRowLum > 26 && rightRim.maxRowGrad > 13);
+
+        if ((leftHasRim && rightHasRim) || (hasBridge && (leftHasRim || rightHasRim)) || hasVeryStrongBridge) {
+          hasGlasses = true;
+          details.push('Kacamata');
+        }
       }
     } catch {
       // Skip jika gagal baca canvas
