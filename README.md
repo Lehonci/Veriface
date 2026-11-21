@@ -1,25 +1,29 @@
-# 🛡️ Identity Gateway: Pre-Screening Biometrik & 3D Liveness Detection
+# 🛡️ Veriface: Pre-Screening Biometrik & 3D Liveness Detection
 
-Sistem **Pre-Screening Identity Gateway** berbasis web untuk deteksi *spoofing* dan pemalsuan identitas (*face spoofing / screen replay attacks*) pada proses **Wawancara Kerja Online (Online Job Recruitment)**. 
+Sistem **Pre-Screening Identity Gateway** berbasis web untuk mendeteksi pemalsuan identitas (*face spoofing*, foto cetak, dan *screen replay attack*) sebelum kandidat masuk ke sesi **Wawancara Kerja Online (Zoom Meeting)**.
 
-Dibangun dengan arsitektur **Client-Side Edge Computing** menggunakan Google MediaPipe Face Mesh (WASM/WebGL) sehingga pemrosesan biometrik berjalan **100% gratis, privat, dan tanpa beban GPU server**, dipadukan dengan desain modern bertema **Dark Maroon Glassmorphism**.
+Pemrosesan biometrik berjalan langsung di browser (**Client-Side Edge Computing**) memadukan **MediaPipe Face Landmarker** dan model **CNN MobileNetV3-Small Multi-Head (ONNX)** lewat WebAssembly/WebGL tanpa membutuhkan server GPU, sementara validasi sesi, keamanan API, notifikasi email, dan audit visual ditangani oleh backend Next.js 16 dan Supabase.
 
 ---
 
 ## 🌟 Fitur Utama
 
 ### 1. Sisi Pelamar (Client Gateway)
-* **Passive 3D Liveness Detection:** Mengambil 478 titik koordinat *face mesh* secara real-time dan menghitung variansi kedalaman $\sigma^2(z)$ pada kontur wajah (hidung, pipi, dahi). Foto 2D, cetakan kertas, atau layar smartphone akan terdeteksi sebagai permukaan datar (*flat surface*) dan langsung ditandai sebagai indikasi *spoofing*.
-* **Virtual Camera Blocker:** Memindai label perangkat webcam via `navigator.mediaDevices.enumerateDevices()` dan menolak driver kamera virtual (OBS Virtual Cam, ManyCam, SplitCam, DroidCam, dll.).
-* **Adaptive Luminance Pre-Check:** Mengukur intensitas pencahayaan ruangan secara otomatis dengan formula standar ITU-R BT.601 ($Y = 0.299R + 0.587G + 0.114B$) untuk mencegah kegagalan verifikasi akibat ruangan gelap.
-* **Smart Auto-Redirect & Zoom Guide:** Memberikan panduan resmi pengubahan nama tampilan Zoom: `[Posisi/Kode Undangan] - [Nama Lengkap]`, tombol salin instan, serta hitung mundur pengalihan ke URL Zoom Meeting aktif.
+* **Multi-Frame CNN Liveness + 3D Depth Variance:** Menggabungkan evaluasi model ONNX MobileNetV3 Multi-Head di beberapa *frame* selama 2,5 detik (*median voting*) dan analisis 478 landmark 3D MediaPipe untuk membedakan wajah manusia nyata dari foto cetak atau layar ponsel.
+* **Adaptive Illumination & Attribute Gate:**
+  * Memeriksa kecerahan wajah menggunakan luminansi **ITU-R BT.601** (`min_mean_luma = 50`). Ruangan terlalu redup dicatat sebagai `POOR_LIGHTING`, bukan `SPOOF_FAILED`.
+  * Mendeteksi masker dan kacamata melalui kombinasi `occlusion_logit` ONNX dan heuristik MediaPipe (`facialAccessories.ts`), lalu menahan pemindaian secara lokal hingga atribut dilepas.
+* **Virtual Camera Blocker:** Memeriksa daftar perangkat media serta properti `MediaStreamTrack` untuk memblokir driver kamera virtual (OBS Virtual Cam, ManyCam, SplitCam, DroidCam, Iriun, Snap Camera, dll.).
+* **Human-in-the-Loop Audit Gate & Banding:**
+  * Jika lolos AI (`PASSED`) saat mode manual aktif, kandidat menunggu konfirmasi Host dengan batas waktu *Fail-Safe Auto-Admit* (default 30 detik).
+  * Jika ditolak AI (`SPOOF_FAILED` / `POOR_LIGHTING`), kandidat dapat menekan **Ajukan Tinjauan Admin** dengan batas waktu *Fail-Secure* 60 detik (akses tetap ditolak bila tidak disetujui Host).
+* **Anti-Replay Scan Challenge & Zoom Pass:** Pengajuan verifikasi diwajibkan melewati token *scan challenge* sekali pakai, verifikasi skor/snapshot di server, dan token akses Zoom bertanda tangan JWT (`HS256`).
 
 ### 2. Sisi Host / HR (Admin Audit Dashboard)
-* **Visual Face Matching Panel:** Menampilkan foto *snapshot* resolusi tinggi pelamar yang terverifikasi (atau bukti anomali *spoofing*) agar Host dapat mencocokkannya dengan peserta di *Waiting Room Zoom* sebelum menekan tombol **Admit** atau **Remove**.
-* **Real-time Live Feed:** Terkoneksi via WebSocket Supabase Realtime—data verifikasi baru masuk seketika tanpa perlu me-refresh halaman.
-* **Analisis & Metrik KPI:** Statistik total pelamar, rasio kelulusan (*pass rate* %), jumlah *spoofing* terdeteksi, serta diagram distribusi visual (Recharts).
-* **Manajemen Link Zoom Dinamis:** Formulir konfigurasi URL meeting, passcode, dan judul sesi wawancara yang dapat diubah kapan saja tanpa *redeploy* aplikasi.
-* **Role-Based Security:** Portal admin terlindungi *auth guard* khusus; pelamar kerja tidak perlu membuat akun/login sehingga proses berjalan cepat (*frictionless*).
+* **Audit Visual & Panel Perbandingan Side-by-Side:** Membandingkan *snapshot* saat verifikasi biometrik dengan tangkapan layar langsung dari jendela/tab Zoom (`getDisplayMedia` + MediaPipe auto-crop 1-klik) sebelum menekan **Izinkan** atau **Tolak**.
+* **Notifikasi Real-Time Desktop & Email (Gmail SMTP):** Mengirim alert browser (*Web Notifications API + audio chime*) dan email HTML ke HP HR via `nodemailer` ketika ada kandidat menunggu atau memicu indikasi spoofing/banding.
+* **Manajemen Kebijakan Dinamis (`/admin/dashboard` & `/admin/settings`):** Mengatur URL Zoom aktif, *passcode*, mode *Auto-Redirect* vs *Manual Gate*, durasi *Auto-Admit Timeout*, penerima email notifikasi, serta mode sensitivitas AI (`Seimbang EER 62.9%` vs `Ketat 70.6%`).
+* **Keamanan Portal Admin:** Autentikasi cookie **`HttpOnly` JWT** (`ADMIN_EMAIL`/`ADMIN_PASSWORD` dengan *timing-safe comparison* atau Supabase Auth), proteksi rute via `src/proxy.ts`, guard sesi di setiap API admin, serta *rate limiting* berbasis IP.
 
 ---
 
@@ -27,12 +31,12 @@ Dibangun dengan arsitektur **Client-Side Edge Computing** menggunakan Google Med
 
 | Layer | Teknologi |
 | :--- | :--- |
-| **Framework** | [Next.js 14](https://nextjs.org/) (App Router, Server Actions, API Routes) |
-| **Bahasa** | [TypeScript](https://www.typescriptlang.org/) |
-| **Computer Vision Engine** | [Google MediaPipe Tasks Vision](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker) (Face Landmarker / Face Mesh) |
-| **Styling & UI** | [Tailwind CSS v3](https://tailwindcss.com/) (Custom Dark Maroon Glassmorphism Design Tokens) |
-| **Database & Realtime** | [Supabase](https://supabase.com/) (PostgreSQL DDL, Realtime WebSocket Channels, Storage) |
-| **Keamanan & Token** | [Jose](https://github.com/panva/jose) (Signed JWT Token HMAC-SHA256) |
+| **Framework** | [Next.js 16.4](https://nextjs.org/) (App Router, Proxy Middleware, Route Handlers) |
+| **Bahasa & UI** | [TypeScript](https://www.typescriptlang.org/), React 18, [Tailwind CSS v3](https://tailwindcss.com/) |
+| **Computer Vision Engine** | [ONNX Runtime Web](https://onnxruntime.ai/) (`veriface_liveness.onnx`), [MediaPipe Tasks Vision](https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker) |
+| **Database, Auth & Storage** | [Supabase](https://supabase.com/) (`@supabase/supabase-js`, `@supabase/ssr`, PostgreSQL RLS, Storage `snapshots`) |
+| **Keamanan & Token** | [Jose](https://github.com/panva/jose) (`HS256` JWT + domain-isolated keys) |
+| **Notifikasi Email** | [Nodemailer](https://nodemailer.com/) (Gmail SMTP + Google App Password) |
 | **Visualisasi & Ikon** | [Recharts](https://recharts.org/), [Lucide React](https://lucide.dev/), [Canvas Confetti](https://www.npmjs.com/package/canvas-confetti) |
 
 ---
@@ -40,87 +44,107 @@ Dibangun dengan arsitektur **Client-Side Edge Computing** menggunakan Google Med
 ## 📁 Struktur Direktori
 
 ```text
-├── public/                 # Aset statis & logo vektor (logo.svg)
+├── public/
+│   ├── logo.svg
+│   └── models/                     # Model ONNX MobileNetV3 & konfigurasi threshold (config.json)
 ├── src/
 │   ├── app/
 │   │   ├── admin/
-│   │   │   ├── dashboard/  # Dashboard audit visual & face matching host
-│   │   │   ├── login/      # Halaman otentikasi admin/host
-│   │   │   └── settings/   # Manajemen dinamis URL & passcode Zoom
+│   │   │   ├── dashboard/          # Dashboard KPI, Audit Visual, Live Zoom Monitor, Riwayat, Pengaturan
+│   │   │   ├── login/              # Halaman login admin & reset password
+│   │   │   └── settings/           # Konfigurasi link & passcode Zoom Meeting
 │   │   ├── api/
-│   │   │   ├── admin/      # Endpoint stats, logs, & zoom settings
-│   │   │   └── verify/     # Endpoint pemrosesan liveness pass & fail
-│   │   ├── globals.css     # Theme layers, frosted glass, & ambient glow
-│   │   ├── layout.tsx      # Root layout & dark mode provider
-│   │   └── page.tsx        # Gateway utama pelamar (macOS 2-Column Split)
-│   ├── components/         # Navbar, IdentityForm, CameraView, Modals
-│   ├── hooks/              # useCamera & useFaceLandmarker (MediaPipe Engine)
+│   │   │   ├── admin/
+│   │   │   │   ├── auth/           # login, logout, session, forgot-password
+│   │   │   │   ├── settings/       # CRUD konfigurasi Zoom & kebijakan liveness
+│   │   │   │   ├── stats/          # Agregasi statistik dashboard
+│   │   │   │   └── verifications/  # Daftar, keputusan ADMITTED/REMOVED, Zoom snapshot, hapus
+│   │   │   └── verify/
+│   │   │       ├── challenge/      # Penerbit one-time scan challenge token
+│   │   │       ├── config/         # Ekspos kebijakan threshold publik non-sensitif
+│   │   │       ├── fail/           # Pencatatan insiden spoofing, kamera virtual, atau cahaya redup
+│   │   │       ├── pass/           # Validasi hasil verifikasi & gate Zoom
+│   │   │       ├── status/         # Polling status real-time & pengajuan banding pelamar
+│   │   │       └── token/          # Verifikasi token JWT akses Zoom
+│   │   └── page.tsx                # Gateway utama pelamar
+│   ├── components/                 # Navbar, IdentityForm, CameraView, FailureAlert, WaitingApprovalModal, SuccessModal
+│   ├── hooks/                      # useCamera, useFaceLandmarker, useZoomMonitor
 │   ├── lib/
-│   │   ├── cv/             # Perhitungan Z-depth variance, luminance, crop WebP
-│   │   ├── supabase/       # Klien Supabase (Client, Server, & In-Memory Store)
-│   │   └── jwt.ts          # Generator signed JWT token
-│   └── types/              # Definisi interface TypeScript
+│   │   ├── cv/                     # depthVariance, luminance, facialAccessories, virtualCamera, cropFace
+│   │   ├── supabase/               # Klien browser & server (service_role + fallback in-memory mockDB)
+│   │   ├── adminAuth.ts            # Penandatanganan & verifikasi cookie sesi HttpOnly admin
+│   │   ├── adminCredentials.ts     # Validasi kredensial .env & Supabase Auth
+│   │   ├── email.ts                # Pengirim alert email HTML via Gmail SMTP
+│   │   ├── jwt.ts                  # Utilitas JWT & domain secret isolation
+│   │   ├── rateLimit.ts            # Sliding-window IP rate limiter
+│   │   ├── verifaceEngine.ts       # Loader & evaluator ONNX Runtime Web
+│   │   ├── verifyChallenge.ts      # Challenge nonce, validasi metrik server, & status token pelamar
+│   │   └── zoomHelpers.ts          # Manajemen Storage snapshot & payload akses Zoom
+│   ├── proxy.ts                    # Proteksi rute halaman & API admin (Next.js 16 Proxy)
+│   └── types/                      # Definisi interface TypeScript
 └── supabase/
-    └── schema.sql          # Skrip DDL PostgreSQL, ENUM, RLS, & Realtime
+    ├── schema.sql                  # Skema tabel zoom_settings, verifications, ENUM, index, & RLS
+    ├── storage.sql                 # Setup bucket Storage 'snapshots'
+    ├── migration_audit_zoom.sql    # Migrasi kolom Audit Gate, Zoom snapshot, email & liveness_mode
+    └── security_hardening_rls.sql  # Pengetatan policy RLS (menutup akses langsung peran anon)
 ```
 
 ---
 
 ## 🚀 Panduan Instalasi & Menjalankan Lokal
 
-### 1. Kloning Repositori
+### 1. Kloning Repositori & Instalasi Dependensi
 ```bash
-git clone https://github.com/Lehonci/viskom.git
-cd viskom
-```
-
-### 2. Instalasi Dependensi
-```bash
+git clone https://github.com/Lehonci/Veriface.git
+cd Veriface
 npm install
 ```
 
-### 3. Konfigurasi Lingkungan (`.env.local`)
-Salin file `.env.example` menjadi `.env.local`:
+### 2. Konfigurasi Lingkungan (`.env.local`)
+Salin `.env.example` menjadi `.env.local`:
 ```bash
 cp .env.example .env.local
 ```
 
-Isi file `.env.local`:
+Lengkapi `.env.local` sesuai kebutuhan Anda:
 ```env
-# Supabase Configuration (Opsional untuk cloud DB permanen)
+# Supabase Configuration
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key_here
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_your_key_here
+# Wajib diisi sebelum menerapkan supabase/security_hardening_rls.sql
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
 
-# Keamanan JWT
-JWT_SECRET=identity_gateway_super_secret_jwt_key_2026_xyz
+# Security & JWT Token Signing (minimal 16 karakter acak kuat)
+JWT_SECRET=ganti_dengan_secret_acak_minimal_32_karakter_produksi
 
-# Kredensial Login Admin Default
-ADMIN_EMAIL=admin@company.com
-ADMIN_PASSWORD=adminpassword123
+# Kredensial Login Portal Admin
+ADMIN_EMAIL=emailpribadianda@gmail.com
+ADMIN_PASSWORD=PasswordAdminKuatAnda2026!
+
+# Notifikasi Email (Gmail SMTP + Google App Password 16 digit)
+SMTP_USER=emailpribadianda@gmail.com
+SMTP_PASS=16digitapppassword
+ADMIN_NOTIFY_EMAIL=emailpribadianda@gmail.com
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
-> 💡 **Catatan Mode Hybrid:** Jika kunci Supabase dikosongkan, sistem secara otomatis menggunakan **In-Memory Store**. Anda tetap dapat menguji coba aplikasi secara lokal tanpa kendala!
+> **Mode Fallback Lokal:** Apabila URL Supabase tidak dikonfigurasi, server memakai **In-Memory Store (`mockDB`)** untuk uji coba cepat tanpa cloud DB (data akan ter-reset saat server dimulai ulang).
+
+### 3. Setup Database & Storage Supabase
+1. Buat project di [Supabase](https://supabase.com/).
+2. Buka **SQL Editor** dan jalankan secara berurutan:
+   * [`supabase/schema.sql`](./supabase/schema.sql) — membuat tipe enum, tabel `zoom_settings` & `verifications`, indeks, dan Realtime.
+   * [`supabase/storage.sql`](./supabase/storage.sql) — membuat bucket Storage `snapshots`.
+   * [`supabase/migration_audit_zoom.sql`](./supabase/migration_audit_zoom.sql) — memastikan kolom Audit Gate, email, dan `liveness_mode` tersedia pada skema lama.
+3. Pastikan `SUPABASE_SERVICE_ROLE_KEY` dari **Project Settings -> API -> `service_role` (secret)** sudah terpasang di `.env.local`, lalu jalankan [`supabase/security_hardening_rls.sql`](./supabase/security_hardening_rls.sql) untuk mengunci akses publik `anon`.
 
 ### 4. Menjalankan Server Pengembangan
 ```bash
 npm run dev
 ```
-Buka peramban pada alamat:
-* **Halaman Pelamar (Gateway):** [http://localhost:3000](http://localhost:3000)
-* **Portal Host / Admin:** [http://localhost:3000/admin/login](http://localhost:3000/admin/login)  
-  *(Email: `admin@company.com` | Password: `adminpassword123`)*
-
----
-
-## 🗄️ Setup Database Supabase Cloud (Permanen)
-
-Jika ingin menyimpan riwayat audit dan snapshot secara permanen di cloud:
-1. Buat project baru di [Supabase](https://supabase.com/).
-2. Buka menu **SQL Editor** pada dashboard Supabase Anda.
-3. Buka file [`supabase/schema.sql`](./supabase/schema.sql), salin seluruh kodenya, lalu klik **Run**.
-4. Masuk ke **Project Settings $\to$ API**, salin `Project URL`, `anon key`, dan `service_role key` ke file `.env.local`.
-5. Buat bucket baru bernama `snapshots` di menu **Storage** dengan akses *Public Read*.
-6. Restart server (`npm run dev`).
+Buka peramban:
+* **Portal Pelamar (Gateway):** [http://localhost:3000](http://localhost:3000)
+* **Portal Login Admin:** [http://localhost:3000/admin/login](http://localhost:3000/admin/login) (gunakan `ADMIN_EMAIL` & `ADMIN_PASSWORD` dari `.env.local`)
 
 ---
 
@@ -128,16 +152,15 @@ Jika ingin menyimpan riwayat audit dan snapshot secara permanen di cloud:
 
 | No | Skenario Uji | Prosedur | Ekspektasi Hasil |
 | :---: | :--- | :--- | :--- |
-| **1** | **Wajah Asli (Normal)** | Lengkapi form, tatap kamera secara wajar selama 2-3 detik | Verifikasi `PASSED`, modal sukses muncul, auto-redirect ke link Zoom. |
-| **2** | **Foto 2D / Layar HP (Spoofing)** | Arahkan foto wajah di smartphone ke arah webcam | Variansi kedalaman pipih, status `SPOOF_FAILED`, snapshot terkirim ke dashboard audit. |
-| **3** | **Driver Kamera Virtual** | Buka kamera menggunakan OBS Virtual Camera / VCam | Akses langsung diblokir (*VIRTUAL_CAM_BLOCKED*). |
-| **4** | **Pencahayaan Gelap** | Uji coba di ruangan dengan sumber cahaya redup (< 40 Lux) | Muncul peringatan pencahayaan redup, pemindaian ditahan demi akurasi. |
-| **5** | **Real-time Live Feed** | Buka tab admin dan tab pelamar berdampingan | Log pelamar langsung bertambah seketika tanpa perlu refresh browser. |
+| **1** | **Wajah Asli (Normal)** | Isi form, tatap kamera selama 2,5 detik pada ruangan terang | Voting ONNX >= threshold aktif -> masuk Audit Gate atau langsung mendapat akses Zoom & token JWT. |
+| **2** | **Foto 2D / Layar HP** | Arahkan foto atau video di layar ponsel ke webcam | Skor liveness di bawah threshold (`SPOOF_FAILED`), modal gagal tampil di tengah layar, tersedia opsi banding admin. |
+| **3** | **Kamera Virtual & Cahaya Redup** | Gunakan OBS Virtual Camera atau ruangan gelap (`luma < 50`) | Virtual Cam langsung diblokir (`VIRTUAL_CAM_BLOCKED`); cahaya redup tercatat sebagai `POOR_LIGHTING`. |
+| **4** | **Masker / Kacamata** | Pindai wajah dengan masker atau kacamata | Pemindaian ditahan lokal (`HOLD_OCCLUSION`) tanpa mencatat pelanggaran spoofing ke database. |
+| **5** | **Audit & Keamanan API** | Akses `/api/admin/*` tanpa login atau `/api/verify/pass` tanpa *challenge* | Ditolak server (`401` untuk API admin, `403` untuk *pass* tanpa challenge valid / *replay token*). |
 
 ---
 
 ## 📄 Lisensi & Kontributor
 
-Dikembangkan sebagai bagian dari riset tugas besar **Computer Vision (TRPL - Semester 5)**.  
-*Hak Cipta &copy; 2026 Pre-Screening Identity Gateway Research.*
-
+Dikembangkan untuk proyek **Computer Vision (TRPL - Semester 5)**.  
+*Hak Cipta &copy; 2026 Veriface.*
