@@ -384,7 +384,7 @@ export default function AdminDashboardPage() {
             deepLinkIdRef.current = null;
           }
         } else {
-          setSelectedRecord((prev) => prev || (list.length > 0 ? list[0] : null));
+          setSelectedRecord((prev) => (prev ? list.find((v) => v.id === prev.id) || prev : null));
         }
       }
     } catch (err) {
@@ -674,6 +674,12 @@ export default function AdminDashboardPage() {
   };
 
   // Dynamic KPI calculated purely from live database records
+  const isAdminVerified = (v: VerificationRecord) => {
+    const decision = admittedList[v.id] || v.admin_decision;
+    return decision === 'ADMITTED' || decision === 'REMOVED';
+  };
+  const auditQueue = verifications.filter((v) => !isAdminVerified(v));
+  const verifiedHistory = verifications.filter(isAdminVerified);
   const totalVerifs = verifications.length;
   const passedCount = verifications.filter((v) => v.status === 'PASSED').length;
   const failedCount = verifications.filter((v) => v.status !== 'PASSED').length;
@@ -899,8 +905,8 @@ export default function AdminDashboardPage() {
     isUnread: unreadIds.has(v.id),
   }));
 
-  // Filtered History list
-  const filteredHistory = verifications.filter((item) => {
+  // Filtered History list (only records explicitly verified by admin)
+  const filteredHistory = verifiedHistory.filter((item) => {
     // 1. Pencarian teks (Nama, Email, Posisi, ID, Alasan)
     if (historySearchQuery.trim()) {
       const q = historySearchQuery.toLowerCase().trim();
@@ -1081,7 +1087,7 @@ export default function AdminDashboardPage() {
                   <span>Audit visual</span>
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#F4DCE1] text-[#9E2648]">
-                  {failedCount}
+                  {auditQueue.length}
                 </span>
               </button>
 
@@ -1562,12 +1568,12 @@ export default function AdminDashboardPage() {
                 </div>
 
                 <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
-                  {verifications.length === 0 ? (
+                  {auditQueue.length === 0 ? (
                     <div className="p-8 text-center text-gray-400 text-xs">
-                      Tidak ada catatan verifikasi.
+                      Semua catatan sudah diverifikasi admin.
                     </div>
                   ) : (
-                    verifications.slice(0, 5).map((item) => {
+                    auditQueue.slice(0, 5).map((item) => {
                       const decision = admittedList[item.id] || item.admin_decision;
                       const isSuccess = item.status === 'PASSED';
                       const isBlocked = item.status === 'SPOOF_FAILED' || item.status === 'VIRTUAL_CAM_BLOCKED';
@@ -2036,16 +2042,18 @@ export default function AdminDashboardPage() {
                   </div>
                   <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#EDF9F4] text-[#12B76A] text-xs font-semibold">
                     <span className="w-2 h-2 rounded-full bg-[#12B76A] animate-pulse"></span>
-                    <span>{failedCount} kasus terindikasi pelanggaran</span>
+                    <span>{auditQueue.length} menunggu verifikasi admin</span>
                   </div>
                 </div>
 
                 {/* 3 Metric Summary Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-                    <p className="text-xs font-medium text-[#7D5662]">Antrean pelanggaran</p>
-                    <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{failedCount}</h3>
-                    <p className="text-[11px] font-medium text-[#9E2648] mt-1">{failedCount} terdeteksi pelanggaran</p>
+                    <p className="text-xs font-medium text-[#7D5662]">Menunggu verifikasi</p>
+                    <h3 className="text-2xl font-black text-[#2B0E17] mt-1">{auditQueue.length}</h3>
+                    <p className="text-[11px] font-medium text-[#9E2648] mt-1">
+                      {auditQueue.filter((v) => v.status !== 'PASSED').length} terdeteksi pelanggaran
+                    </p>
                   </div>
 
                   <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
@@ -2057,12 +2065,7 @@ export default function AdminDashboardPage() {
                   <div className="bg-white p-5 rounded-[24px] border border-[#F0E4E7] shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
                     <p className="text-xs font-medium text-[#7D5662]">Keputusan manual</p>
                     <h3 className="text-2xl font-black text-[#2B0E17] mt-1">
-                      {
-                        verifications.filter((v) => {
-                          const d = admittedList[v.id] || v.admin_decision;
-                          return d === 'ADMITTED' || d === 'REMOVED';
-                        }).length
-                      }
+                      {verifiedHistory.length}
                     </h3>
                     <p className="text-[11px] font-medium text-gray-400 mt-1">Tindakan host tersimpan permanen</p>
                   </div>
@@ -2073,21 +2076,21 @@ export default function AdminDashboardPage() {
                   <div className="flex items-center justify-between pb-3 border-b border-[#F7ECEF]">
                     <div>
                       <h3 className="text-base font-bold text-[#2B0E17]">Antrean pemeriksaan</h3>
-                      <p className="text-xs text-[#7D5662]">Diurutkan berdasarkan waktu masuk data</p>
+                      <p className="text-xs text-[#7D5662]">Data yang belum diverifikasi lolos atau ditolak oleh admin</p>
                     </div>
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#FFF8E6] text-[#F79009] text-xs font-bold border border-[#FDE8B3]">
                       <AlertTriangle className="w-3.5 h-3.5" />
-                      <span>Semua risiko ({verifications.length})</span>
+                      <span>Menunggu audit ({auditQueue.length})</span>
                     </div>
                   </div>
 
                   <div className="space-y-3">
-                    {verifications.length === 0 ? (
+                    {auditQueue.length === 0 ? (
                       <div className="p-8 text-center text-gray-400 text-xs">
-                        Tidak ada antrean pemeriksaan.
+                        Semua data sudah diverifikasi admin dan dipindahkan ke Riwayat.
                       </div>
                     ) : (
-                      verifications.map((item) => {
+                      auditQueue.map((item) => {
                         const isBlocked = item.status === 'SPOOF_FAILED' || item.status === 'VIRTUAL_CAM_BLOCKED';
                         const isPassed = item.status === 'PASSED';
                         const decision = admittedList[item.id] || item.admin_decision;
@@ -2298,9 +2301,13 @@ export default function AdminDashboardPage() {
                     <div className="w-12 h-12 rounded-2xl bg-[#FAF0F2] text-[#9E2648] flex items-center justify-center mb-3 border border-[#F2D7DE]">
                       <Filter className="w-5 h-5" />
                     </div>
-                    <h4 className="text-sm font-bold text-[#2B0E17]">Tidak ada data yang sesuai</h4>
+                    <h4 className="text-sm font-bold text-[#2B0E17]">
+                      {verifiedHistory.length === 0 ? 'Belum ada riwayat terverifikasi' : 'Tidak ada data yang sesuai'}
+                    </h4>
                     <p className="text-xs text-[#7D5662] mt-1 max-w-sm">
-                      Tidak ditemukan riwayat verifikasi yang cocok dengan kriteria filter yang Anda pilih.
+                      {verifiedHistory.length === 0
+                        ? 'Data akan masuk ke Riwayat setelah diverifikasi lolos atau ditolak oleh admin di Audit visual.'
+                        : 'Tidak ditemukan riwayat verifikasi yang cocok dengan kriteria filter yang Anda pilih.'}
                     </p>
                     {hasActiveHistoryFilter && (
                       <button
