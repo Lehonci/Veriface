@@ -1,4 +1,4 @@
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/wasm';
 import { LandmarkPoint } from '@/lib/cv/depthVariance';
 import { isVirtualCameraLabel } from '@/lib/cv/virtualCamera';
 import { LivenessThresholdMode } from '@/types';

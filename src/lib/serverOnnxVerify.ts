@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import sharp from 'sharp';
-import * as ort from 'onnxruntime-web';
+import * as ort from 'onnxruntime-web/wasm';
 
 const IMG_SIZE = 224;
 const MEAN = [0.485, 0.456, 0.406];
