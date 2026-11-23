@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const email = typeof body.email === 'string' ? body.email : '';
     const password = typeof body.password === 'string' ? body.password : '';
+    const rememberMe = body.rememberMe !== false;
 
     const result = await verifyAdminCredentials(email, password);
     if (!result.ok || !result.email || !result.authMethod) {
@@ -37,14 +38,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const token = await signAdminSessionToken(result.email, result.authMethod);
+    const token = await signAdminSessionToken(result.email, result.authMethod, rememberMe);
     const response = NextResponse.json({
       success: true,
       email: result.email,
       authMethod: result.authMethod,
     });
 
-    attachAdminSessionCookie(response, token, req);
+    attachAdminSessionCookie(response, token, req, rememberMe);
     return response;
   } catch (error: unknown) {
     console.error('Error in POST /api/admin/auth/login:', error);

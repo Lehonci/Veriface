@@ -14,11 +14,13 @@ export interface AdminSessionPayload {
 
 export async function signAdminSessionToken(
   email: string,
-  authMethod: 'env' | 'supabase'
+  authMethod: 'env' | 'supabase',
+  rememberMe = true
 ): Promise<string> {
   const randomBytes = new Uint8Array(12);
   crypto.getRandomValues(randomBytes);
   const jti = `adm_${Array.from(randomBytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  const ttlSeconds = rememberMe ? ADMIN_SESSION_TTL_SECONDS : 60 * 60 * 2;
 
   return new SignJWT({
     purpose: 'admin_session',
@@ -32,7 +34,7 @@ export async function signAdminSessionToken(
     .setSubject(email)
     .setJti(jti)
     .setIssuedAt()
-    .setExpirationTime(`${ADMIN_SESSION_TTL_SECONDS}s`)
+    .setExpirationTime(`${ttlSeconds}s`)
     .sign(getDomainSecretKey('admin-session'));
 }
 
@@ -95,13 +97,18 @@ export function isSecureTransport(req?: NextRequest): boolean {
   return proto === 'https';
 }
 
-export function attachAdminSessionCookie(res: NextResponse, token: string, req?: NextRequest): void {
+export function attachAdminSessionCookie(
+  res: NextResponse,
+  token: string,
+  req?: NextRequest,
+  rememberMe = true
+): void {
   res.cookies.set(ADMIN_SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
     secure: isSecureTransport(req),
     path: '/',
-    maxAge: ADMIN_SESSION_TTL_SECONDS,
+    ...(rememberMe ? { maxAge: ADMIN_SESSION_TTL_SECONDS } : {}),
   });
 }
 

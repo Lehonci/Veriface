@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseServer, mockDB, isSupabaseServerConfigured } from '@/lib/supabase/server';
 import { getActiveZoomConfig, buildZoomSuccessPayload } from '@/lib/zoomHelpers';
 import { sendAdminNotificationEmail } from '@/lib/email';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { checkRateLimit, getClientIp, getTrustedAppBaseUrl } from '@/lib/rateLimit';
 import { verifyApplicantStatusAccess } from '@/lib/verifyChallenge';
 import { VerificationRecord } from '@/types';
 
@@ -255,7 +255,7 @@ export async function POST(req: NextRequest) {
     });
 
     const activeZoom = await getActiveZoomConfig();
-    const appOrigin = req.headers.get('origin') || undefined;
+    const appOrigin = getTrustedAppBaseUrl(req);
     if (activeZoom.email_notification_enabled) {
       sendAdminNotificationEmail({
         record: { ...record, review_requested: true },

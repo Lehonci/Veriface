@@ -128,6 +128,18 @@ export async function uploadSnapshotToStorage(
 }
 
 /**
+ * Menyimpan rekaman verifikasi baru ke Supabase atau mockDB fallback.
+ */
+export async function insertVerificationRecord(record: VerificationRecord): Promise<void> {
+  if (isSupabaseServerConfigured && supabaseServer) {
+    const { error } = await supabaseServer.from('verifications').insert([record]);
+    if (error) console.error('Supabase insert verification failed:', error);
+    return;
+  }
+  mockDB.verifications.unshift(record);
+}
+
+/**
  * Menghapus file snapshot dari bucket Supabase Storage jika berupa URL storage publik.
  */
 export async function deleteSnapshotFromStorage(snapshotUrl?: string | null): Promise<void> {

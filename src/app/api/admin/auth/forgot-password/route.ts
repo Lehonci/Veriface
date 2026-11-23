@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requestAdminPasswordReset } from '@/lib/adminCredentials';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { checkRateLimit, getClientIp, getTrustedAppBaseUrl } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,9 +25,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const origin = req.headers.get('origin');
-    const redirectTo = origin ? `${origin}/admin/login` : undefined;
-    const result = await requestAdminPasswordReset(email, redirectTo);
+    const trustedOrigin = getTrustedAppBaseUrl(req);
+    const result = await requestAdminPasswordReset(email, trustedOrigin);
 
     return NextResponse.json(
       {

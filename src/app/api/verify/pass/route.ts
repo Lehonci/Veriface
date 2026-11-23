@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseServer, mockDB, isSupabaseServerConfigured } from '@/lib/supabase/server';
 import { signVerificationToken } from '@/lib/jwt';
 import {
   getActiveZoomConfig,
   uploadSnapshotToStorage,
   buildZoomSuccessPayload,
+  insertVerificationRecord,
 } from '@/lib/zoomHelpers';
 import { sendAdminNotificationEmail } from '@/lib/email';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
-import { isSecureTransport } from '@/lib/adminAuth';
+import { checkRateLimit, getClientIp, getTrustedAppBaseUrl } from '@/lib/rateLimit';
 import {
-  APPLICANT_STATUS_COOKIE,
+  attachApplicantStatusCookie,
   consumeScanChallengeToken,
   getServerModelPolicy,
   isValidApplicantEmail,
@@ -27,15 +26,11 @@ export async function POST(req: NextRequest) {
     const limit = checkRateLimit(`verify-pass:${ipAddress}`, 15, 60_000);
     if (!limit.allowed) {
       return NextResponse.json(
-        {
-          success: false,
-          message: `Terlalu banyak percobaan verifikasi. Coba lagi dalam ${limit.retryAfterSec} detik.`,
-        },
+        { success: false, message: `Terlalu banyak percobaan verifikasi. Coba lagi dalam ${limit.retryAfterSec} detik.` },
         { status: 429, headers: { 'Retry-After': String(limit.retryAfterSec) } }
       );
     }
 
-    const body = await req.json();
     const {
       fullName,
       email,
@@ -46,26 +41,16 @@ export async function POST(req: NextRequest) {
       snapshotBase64,
       challengeToken,
       virtualCameraDetected,
-    } = body;
+    } = await req.json();
 
     const userAgent = req.headers.get('user-agent') || 'Unknown Browser';
-    const appOrigin = req.headers.get('origin') || undefined;
+    const appOrigin = getTrustedAppBaseUrl(req);
 
-    // 1. Validasi one-time scan challenge & durasi minimum pemindaian
-    const challengeCheck = await consumeScanChallengeToken(
-      challengeToken,
-      ipAddress,
-      userAgent,
-      true
-    );
+    const challengeCheck = await consumeScanChallengeToken(challengeToken, ipAddress, userAgent, true);
     if (!challengeCheck.valid) {
-      return NextResponse.json(
-        { success: false, message: challengeCheck.reason },
-        { status: 403 }
-      );
+      return NextResponse.json({ success: false, message: challengeCheck.reason }, { status: 403 });
     }
 
-    // 2. Validasi identitas pelamar
     const cleanName = typeof fullName === 'string' ? fullName.trim() : '';
     const cleanEmail = typeof email === 'string' ? email.trim() : '';
     const cleanPosition = typeof jobPosition === 'string' ? jobPosition.trim() : '';
@@ -84,16 +69,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Validasi integritas bukti snapshot
     const snapshotCheck = validateSnapshotDataUrl(snapshotBase64);
     if (!snapshotCheck.valid) {
-      return NextResponse.json(
-        { success: false, message: snapshotCheck.reason },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, message: snapshotCheck.reason }, { status: 400 });
     }
 
-    // 4. Validasi ambang batas keamanan AI & iluminasi di sisi server
     const activeZoom = await getActiveZoomConfig();
     const modelPolicy = getServerModelPolicy();
     const activeThreshold = resolveActiveThreshold(activeZoom.liveness_mode);
@@ -105,11 +85,7 @@ export async function POST(req: NextRequest) {
         ? Number(depthVariance)
         : null;
 
-    if (
-      !Number.isFinite(parsedConfidence) ||
-      parsedConfidence < activeThreshold ||
-      parsedConfidence > 1
-    ) {
+    if (!Number.isFinite(parsedConfidence) || parsedConfidence < activeThreshold || parsedConfidence > 1) {
       return NextResponse.json(
         {
           success: false,
@@ -129,7 +105,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 5. Audit ulang citra snapshot di server dengan ONNX MobileNetV3 + BT.601
     let serverAudit;
     try {
       serverAudit = await verifySnapshotWithServerOnnx({
@@ -151,9 +126,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            serverAudit.reason ||
-            'Verifikasi ulang ONNX di server menolak keaslian snapshot wajah.',
+          message: serverAudit.reason || 'Verifikasi ulang ONNX di server menolak keaslian snapshot wajah.',
         },
         { status: 403 }
       );
@@ -161,7 +134,6 @@ export async function POST(req: NextRequest) {
 
     const verificationId = `verif_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
     const snapshotUrl = await uploadSnapshotToStorage(verificationId, snapshotBase64);
-
     const isAutoRedirect = Boolean(activeZoom.auto_redirect);
     const nowIso = new Date().toISOString();
 
@@ -195,14 +167,8 @@ export async function POST(req: NextRequest) {
       created_at: nowIso,
     };
 
-    if (isSupabaseServerConfigured && supabaseServer) {
-      const { error: insertError } = await supabaseServer.from('verifications').insert([newRecord]);
-      if (insertError) console.error('Supabase insert verification (PASSED) failed:', insertError);
-    } else {
-      mockDB.verifications.unshift(newRecord);
-    }
+    await insertVerificationRecord(newRecord);
 
-    // Kirim notifikasi email non-blocking ke HP/email admin jika diaktifkan
     if (activeZoom.email_notification_enabled) {
       sendAdminNotificationEmail({
         record: newRecord,
@@ -213,7 +179,6 @@ export async function POST(req: NextRequest) {
     }
 
     const statusToken = await signApplicantStatusToken(verificationId);
-
     const payload: VerificationSuccessPayload = isAutoRedirect
       ? await buildZoomSuccessPayload(newRecord, activeZoom)
       : {
@@ -229,13 +194,7 @@ export async function POST(req: NextRequest) {
     payload.statusToken = statusToken;
 
     const response = NextResponse.json(payload);
-    response.cookies.set(APPLICANT_STATUS_COOKIE, statusToken, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: isSecureTransport(req),
-      path: '/',
-      maxAge: 2 * 60 * 60,
-    });
+    attachApplicantStatusCookie(response, statusToken, req);
     return response;
   } catch (error: unknown) {
     console.error('Error in /api/verify/pass:', error);

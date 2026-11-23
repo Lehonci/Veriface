@@ -270,6 +270,21 @@ export async function signApplicantStatusToken(verificationId: string): Promise<
     .sign(getDomainSecretKey('applicant-status'));
 }
 
+export function attachApplicantStatusCookie(
+  res: { cookies: { set: (name: string, val: string, opts: Record<string, unknown>) => void } },
+  statusToken: string,
+  req: NextRequest
+): void {
+  const proto = req.headers.get('x-forwarded-proto') || req.nextUrl.protocol.replace(':', '');
+  res.cookies.set(APPLICANT_STATUS_COOKIE, statusToken, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: proto === 'https',
+    path: '/',
+    maxAge: 2 * 60 * 60,
+  });
+}
+
 export async function verifyApplicantStatusAccess(
   req: NextRequest,
   verificationId: string,

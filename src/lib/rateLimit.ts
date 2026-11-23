@@ -18,12 +18,25 @@ export interface RateLimitResult {
 }
 
 /**
- * Mengambil alamat IP klien secara konsisten dari header proxy maupun request langsung.
+ * Mengambil alamat IP klien dari header proxy yang lebih sulit dipalsukan.
  */
 export function getClientIp(req: NextRequest): string {
-  const forwarded = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+  const vercelIp = req.headers.get('x-vercel-forwarded-for')?.split(',').pop()?.trim();
+  const cfIp = req.headers.get('cf-connecting-ip')?.trim();
   const realIp = req.headers.get('x-real-ip')?.trim();
-  return forwarded || realIp || '127.0.0.1';
+  const forwarded = req.headers.get('x-forwarded-for')?.split(',').pop()?.trim();
+  return vercelIp || cfIp || realIp || forwarded || '127.0.0.1';
+}
+
+/**
+ * Mengembalikan base URL terpercaya untuk link di email (menghindari Header/Origin Poisoning).
+ */
+export function getTrustedAppBaseUrl(req: NextRequest): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, '');
+  if (configured && /^https?:\/\//i.test(configured)) {
+    return configured;
+  }
+  return req.nextUrl.origin;
 }
 
 /**

@@ -48,6 +48,8 @@ import {
   Upload,
   BellRing,
   Mail,
+  KeyRound,
+  X,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -260,15 +262,25 @@ export default function AdminDashboardPage() {
   const [chartTimeRange, setChartTimeRange] = useState<'today' | '7days' | '30days'>('7days');
 
   // Authentication Guard via server HttpOnly session cookie & Deep-Link Parameter Check
+  const [adminEmail, setAdminEmail] = useState<string>('admin@veriface.id');
+  const [isChangePwdOpen, setIsChangePwdOpen] = useState(false);
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [pwdChangeStatus, setPwdChangeStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [pwdChangeMsg, setPwdChangeMsg] = useState<string | null>(null);
+
   useEffect(() => {
     let active = true;
 
     fetch('/api/admin/auth/session', { cache: 'no-store', credentials: 'same-origin' })
-      .then((res) => {
+      .then(async (res) => {
         if (!active) return;
         if (!res.ok) {
           router.replace('/admin/login');
         } else {
+          const data = await res.json().catch(() => ({}));
+          if (data?.email) setAdminEmail(String(data.email));
           setIsAuthenticated(true);
         }
       })
@@ -307,6 +319,45 @@ export default function AdminDashboardPage() {
       // Tetap lanjutkan redirect ke login
     }
     router.replace('/admin/login');
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwdChangeMsg(null);
+    if (newPwd.length < 8) {
+      setPwdChangeStatus('error');
+      setPwdChangeMsg('Kata sandi baru minimal 8 karakter.');
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      setPwdChangeStatus('error');
+      setPwdChangeMsg('Konfirmasi kata sandi tidak cocok.');
+      return;
+    }
+
+    setPwdChangeStatus('saving');
+    try {
+      const res = await fetch('/api/admin/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ currentPassword: currentPwd, newPassword: newPwd }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        setPwdChangeStatus('error');
+        setPwdChangeMsg(data.message || 'Gagal mengganti kata sandi.');
+        return;
+      }
+      setPwdChangeStatus('success');
+      setPwdChangeMsg(data.message || 'Kata sandi berhasil diperbarui.');
+      setCurrentPwd('');
+      setNewPwd('');
+      setConfirmPwd('');
+    } catch {
+      setPwdChangeStatus('error');
+      setPwdChangeMsg('Gagal menghubungi server.');
+    }
   };
 
   // Fetch initial verifications & settings
@@ -939,16 +990,21 @@ export default function AdminDashboardPage() {
       'Perangkat / User Agent',
       'Waktu Verifikasi',
     ];
+    const csvCell = (val: string) => {
+      const clean = val.replace(/"/g, '""');
+      const safe = /^[=+\-@\t\r]/.test(clean) ? `'${clean}` : clean;
+      return `"${safe}"`;
+    };
     const rows = filteredHistory.map((item) => [
-      `"${item.id}"`,
-      `"${(item.full_name || '').replace(/"/g, '""')}"`,
-      `"${(item.email || '').replace(/"/g, '""')}"`,
-      `"${(item.job_position || item.jobPosition || '').replace(/"/g, '""')}"`,
+      csvCell(item.id),
+      csvCell(item.full_name || ''),
+      csvCell(item.email || ''),
+      csvCell(item.job_position || item.jobPosition || ''),
       item.status === 'PASSED' ? 'Berhasil' : 'Verifikasi Gagal',
-      `"${(item.failure_reason || (item.status === 'PASSED' ? 'Liveness tervalidasi' : '-')).replace(/"/g, '""')}"`,
+      csvCell(item.failure_reason || (item.status === 'PASSED' ? 'Liveness tervalidasi' : '-')),
       item.confidence_score ? `${Math.round(item.confidence_score * 100)}%` : '-',
-      `"${(item.user_agent || 'Web Browser').replace(/"/g, '""')}"`,
-      `"${new Date(item.created_at).toLocaleString('id-ID')}"`,
+      csvCell(item.user_agent || 'Web Browser'),
+      csvCell(new Date(item.created_at).toLocaleString('id-ID')),
     ]);
     const csvContent =
       'data:text/csv;charset=utf-8,\uFEFF' +
@@ -2589,10 +2645,14 @@ export default function AdminDashboardPage() {
                 </div>
 
                 <button
-                  onClick={() => alert('Mode edit profil dibuka')}
+                  onClick={() => {
+                    setPwdChangeStatus('idle');
+                    setPwdChangeMsg(null);
+                    setIsChangePwdOpen(true);
+                  }}
                   className="px-5 py-2.5 rounded-full bg-white border border-[#EEDDE2] hover:bg-[#FAF4F6] text-[#9E2648] text-xs font-bold shadow-sm transition-all"
                 >
-                  Edit profil
+                  Ganti kata sandi
                 </button>
               </div>
 
@@ -2619,7 +2679,7 @@ export default function AdminDashboardPage() {
 
                     <div className="py-3 flex justify-between">
                       <span className="text-[#7D5662]">Email</span>
-                      <span className="font-semibold font-mono text-[#2B0E17]">admin@veriface.id</span>
+                      <span className="font-semibold font-mono text-[#2B0E17]">{adminEmail}</span>
                     </div>
 
                     <div className="py-3 flex justify-between">
@@ -2660,10 +2720,14 @@ export default function AdminDashboardPage() {
                   </div>
 
                   <button
-                    onClick={() => alert('Manajemen keamanan akun dibuka')}
+                    onClick={() => {
+                      setPwdChangeStatus('idle');
+                      setPwdChangeMsg(null);
+                      setIsChangePwdOpen(true);
+                    }}
                     className="w-full py-3 rounded-2xl bg-[#FAF4F6] hover:bg-[#FBECEF] text-[#9E2648] text-xs font-bold flex items-center justify-center gap-2 transition-colors mt-4"
                   >
-                    <span>Kelola keamanan</span>
+                    <span>Ganti kata sandi</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -2735,6 +2799,92 @@ export default function AdminDashboardPage() {
         >
           <div className="relative max-w-md w-full aspect-square rounded-3xl overflow-hidden border border-white/20 shadow-2xl">
             <Image src={modalSnapshot} alt="Snapshot Audit" fill unoptimized className="object-contain" />
+          </div>
+        </div>
+      )}
+
+      {/* Modal Ganti Kata Sandi Administrator */}
+      {isChangePwdOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="w-full max-w-md bg-white rounded-[28px] p-6 sm:p-8 shadow-2xl border border-[#F0E4E7] relative">
+            <button
+              type="button"
+              onClick={() => setIsChangePwdOpen(false)}
+              className="absolute top-5 right-5 p-2 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="w-11 h-11 rounded-2xl bg-[#FAF0F2] text-[#8A233E] flex items-center justify-center mb-4 border border-[#F2D7DE]">
+              <KeyRound className="w-5 h-5" />
+            </div>
+            <h3 className="text-lg font-bold text-[#2B0E17]">Ganti Kata Sandi Admin</h3>
+            <p className="text-xs text-[#7D5662] mt-1 mb-4">
+              Perubahan berlaku untuk akun <span className="font-mono font-semibold text-[#2B0E17]">{adminEmail}</span> di Supabase Auth.
+            </p>
+
+            {pwdChangeMsg && (
+              <div
+                className={`p-3 mb-4 rounded-xl text-xs flex items-center gap-2 border ${
+                  pwdChangeStatus === 'success'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-[#FEE4E2] border-[#FECDCA] text-[#D92D20]'
+                }`}
+              >
+                <span>{pwdChangeMsg}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleChangePassword} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-[#6B4B55] mb-1">Kata sandi saat ini</label>
+                <input
+                  type="password"
+                  required
+                  value={currentPwd}
+                  onChange={(e) => setCurrentPwd(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-2xl border border-gray-200 text-xs text-[#2B0E17] focus:outline-none focus:border-[#8A233E]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#6B4B55] mb-1">Kata sandi baru (min. 8 karakter)</label>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={newPwd}
+                  onChange={(e) => setNewPwd(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-2xl border border-gray-200 text-xs text-[#2B0E17] focus:outline-none focus:border-[#8A233E]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#6B4B55] mb-1">Konfirmasi kata sandi baru</label>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={confirmPwd}
+                  onChange={(e) => setConfirmPwd(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-2xl border border-gray-200 text-xs text-[#2B0E17] focus:outline-none focus:border-[#8A233E]"
+                />
+              </div>
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsChangePwdOpen(false)}
+                  className="w-1/2 py-2.5 rounded-2xl text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="submit"
+                  disabled={pwdChangeStatus === 'saving'}
+                  className="w-1/2 py-2.5 rounded-2xl text-xs font-bold bg-[#8A233E] hover:bg-[#721A31] text-white disabled:opacity-50"
+                >
+                  {pwdChangeStatus === 'saving' ? 'Menyimpan...' : 'Simpan Sandi'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

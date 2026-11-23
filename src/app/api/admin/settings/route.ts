@@ -78,9 +78,9 @@ export async function POST(req: NextRequest) {
 
     const newSetting: ZoomSetting = {
       id: crypto.randomUUID(),
-      meeting_title: meetingTitle || current.meeting_title || 'Wawancara Kerja Online',
-      zoom_url: zoomUrl.trim(),
-      passcode: passcode !== undefined ? String(passcode) : current.passcode,
+      meeting_title: String(meetingTitle || current.meeting_title || 'Wawancara Kerja Online').trim().slice(0, 150),
+      zoom_url: zoomUrl.trim().slice(0, 500),
+      passcode: passcode !== undefined ? String(passcode).trim().slice(0, 64) : current.passcode,
       is_active: Boolean(isActive),
       auto_redirect: autoRedirect !== undefined ? Boolean(autoRedirect) : current.auto_redirect,
       auto_admit_timeout:
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
       admin_notify_email:
         adminNotifyEmail !== undefined
           ? adminNotifyEmail
-            ? String(adminNotifyEmail).trim()
+            ? String(adminNotifyEmail).trim().slice(0, 200)
             : null
           : current.admin_notify_email,
       email_notification_enabled:

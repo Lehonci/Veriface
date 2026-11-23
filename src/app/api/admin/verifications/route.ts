@@ -3,10 +3,30 @@ import { supabaseServer, mockDB, isSupabaseServerConfigured } from '@/lib/supaba
 import { uploadSnapshotToStorage, deleteSnapshotFromStorage } from '@/lib/zoomHelpers';
 import { requireAdminSession } from '@/lib/adminAuth';
 import { validateSnapshotDataUrl } from '@/lib/verifyChallenge';
-import { AdminDecision } from '@/types';
+import { AdminDecision, VerificationRecord } from '@/types';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+
+async function updateVerificationFields(
+  id: string,
+  fields: Partial<VerificationRecord>
+): Promise<VerificationRecord | null> {
+  if (isSupabaseServerConfigured && supabaseServer) {
+    const { data, error } = await supabaseServer
+      .from('verifications')
+      .update(fields)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as VerificationRecord;
+  }
+
+  const target = mockDB.verifications.find((v) => v.id === id) || null;
+  if (target) Object.assign(target, fields);
+  return target;
+}
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdminSession(req);
@@ -26,22 +46,16 @@ export async function GET(req: NextRequest) {
         .order('created_at', { ascending: false })
         .limit(limit);
 
-      if (status && status !== 'ALL') {
-        query = query.eq('status', status);
-      }
-
+      if (status && status !== 'ALL') query = query.eq('status', status);
       if (search) {
-        const sanitizedSearch = search.replace(/[,%()]/g, ' ').trim();
-        if (sanitizedSearch) {
-          query = query.or(
-            `full_name.ilike.%${sanitizedSearch}%,email.ilike.%${sanitizedSearch}%,job_position.ilike.%${sanitizedSearch}%`
-          );
+        const clean = search.replace(/[,%()]/g, ' ').trim();
+        if (clean) {
+          query = query.or(`full_name.ilike.%${clean}%,email.ilike.%${clean}%,job_position.ilike.%${clean}%`);
         }
       }
 
       const { data, error } = await query;
       if (error) throw error;
-
       return NextResponse.json(
         { success: true, verifications: data },
         { headers: { 'Cache-Control': 'no-store, max-age=0' } }
@@ -49,33 +63,22 @@ export async function GET(req: NextRequest) {
     }
 
     let list = [...mockDB.verifications];
-
-    if (status && status !== 'ALL') {
-      list = list.filter((v) => v.status === status);
-    }
-
+    if (status && status !== 'ALL') list = list.filter((v) => v.status === status);
     if (search) {
       const s = search.toLowerCase();
       list = list.filter(
         (v) =>
           v.full_name.toLowerCase().includes(s) ||
           v.email.toLowerCase().includes(s) ||
-          (v.job_position && v.job_position.toLowerCase().includes(s)) ||
-          (v.jobPosition && v.jobPosition.toLowerCase().includes(s))
+          (v.job_position || v.jobPosition || '').toLowerCase().includes(s)
       );
     }
 
-    list = list.slice(0, limit);
-
-    return NextResponse.json({ success: true, verifications: list });
+    return NextResponse.json({ success: true, verifications: list.slice(0, limit) });
   } catch (error: unknown) {
     console.error('Error fetching verifications:', error);
     return NextResponse.json(
-      {
-        success: false,
-        message: 'Gagal memuat riwayat verifikasi.',
-        error: typeof error === 'object' ? JSON.stringify(error) : String(error),
-      },
+      { success: false, message: 'Gagal memuat riwayat verifikasi.' },
       { status: 500 }
     );
   }
@@ -86,52 +89,22 @@ export async function PATCH(req: NextRequest) {
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
-    const body = await req.json();
-    const { id, action, decision, zoomSnapshotBase64 } = body;
-
+    const { id, action, decision, zoomSnapshotBase64 } = await req.json();
     if (!id || typeof id !== 'string') {
-      return NextResponse.json(
-        { success: false, message: 'ID rekaman verifikasi diperlukan.' },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, message: 'ID rekaman verifikasi diperlukan.' }, { status: 400 });
     }
 
-    // 1. Keputusan Host / Admin: Izinkan masuk atau Tolak akses
     if (action === 'DECISION') {
       if (decision !== 'ADMITTED' && decision !== 'REMOVED') {
-        return NextResponse.json(
-          { success: false, message: 'Keputusan tidak valid.' },
-          { status: 400 }
-        );
+        return NextResponse.json({ success: false, message: 'Keputusan tidak valid.' }, { status: 400 });
       }
-
-      const decidedAt = new Date().toISOString();
-      const updateFields = {
+      const verification = await updateVerificationFields(id, {
         admin_decision: decision as AdminDecision,
-        decided_at: decidedAt,
-      };
-
-      if (isSupabaseServerConfigured && supabaseServer) {
-        const { data, error } = await supabaseServer
-          .from('verifications')
-          .update(updateFields)
-          .eq('id', id)
-          .select()
-          .single();
-
-        if (error) throw error;
-        return NextResponse.json({ success: true, verification: data });
-      }
-
-      const target = mockDB.verifications.find((v) => v.id === id);
-      if (target) {
-        target.admin_decision = decision;
-        target.decided_at = decidedAt;
-      }
-      return NextResponse.json({ success: true, verification: target || null });
+        decided_at: new Date().toISOString(),
+      });
+      return NextResponse.json({ success: true, verification });
     }
 
-    // 2. Simpan Snapshot Pembanding dari Layar Zoom (Side-by-Side Comparison)
     if (action === 'ZOOM_SNAPSHOT') {
       const snapCheck = validateSnapshotDataUrl(zoomSnapshotBase64);
       if (!snapCheck.valid) {
@@ -143,51 +116,23 @@ export async function PATCH(req: NextRequest) {
 
       const zoomSnapshotUrl = await uploadSnapshotToStorage(`zoom_${id}`, zoomSnapshotBase64);
       const capturedAt = new Date().toISOString();
-      const updateFields = {
+      const verification = await updateVerificationFields(id, {
         zoom_snapshot_url: zoomSnapshotUrl,
         zoom_captured_at: capturedAt,
-      };
+      });
 
-      if (isSupabaseServerConfigured && supabaseServer) {
-        const { data, error } = await supabaseServer
-          .from('verifications')
-          .update(updateFields)
-          .eq('id', id)
-          .select()
-          .single();
-
-        if (error) throw error;
-        return NextResponse.json({
-          success: true,
-          verification: data,
-          zoom_snapshot_url: zoomSnapshotUrl,
-          zoom_captured_at: capturedAt,
-        });
-      }
-
-      const target = mockDB.verifications.find((v) => v.id === id);
-      if (target) {
-        target.zoom_snapshot_url = zoomSnapshotUrl;
-        target.zoom_captured_at = capturedAt;
-      }
       return NextResponse.json({
         success: true,
-        verification: target || null,
+        verification,
         zoom_snapshot_url: zoomSnapshotUrl,
         zoom_captured_at: capturedAt,
       });
     }
 
-    return NextResponse.json(
-      { success: false, message: 'Aksi PATCH tidak dikenali.' },
-      { status: 400 }
-    );
+    return NextResponse.json({ success: false, message: 'Aksi PATCH tidak dikenali.' }, { status: 400 });
   } catch (error: unknown) {
     console.error('Error in PATCH /api/admin/verifications:', error);
-    return NextResponse.json(
-      { success: false, message: 'Gagal memperbarui rekaman verifikasi.' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, message: 'Gagal memperbarui rekaman verifikasi.' }, { status: 500 });
   }
 }
 
@@ -196,14 +141,9 @@ export async function DELETE(req: NextRequest) {
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
-    const { searchParams } = new URL(req.url);
-    const id = searchParams.get('id');
-
+    const id = new URL(req.url).searchParams.get('id');
     if (!id) {
-      return NextResponse.json(
-        { success: false, message: 'ID rekaman verifikasi diperlukan.' },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, message: 'ID rekaman verifikasi diperlukan.' }, { status: 400 });
     }
 
     if (isSupabaseServerConfigured && supabaseServer) {
@@ -216,32 +156,16 @@ export async function DELETE(req: NextRequest) {
       await deleteSnapshotFromStorage(record?.snapshot_url);
       await deleteSnapshotFromStorage(record?.zoom_snapshot_url);
 
-      const { error } = await supabaseServer
-        .from('verifications')
-        .delete()
-        .eq('id', id);
+      const { error } = await supabaseServer.from('verifications').delete().eq('id', id);
+      if (error) throw error;
 
-      if (error) {
-        console.error('Supabase delete error:', error);
-        throw error;
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: 'Rekaman verifikasi berhasil dihapus.',
-      });
+      return NextResponse.json({ success: true, message: 'Rekaman verifikasi berhasil dihapus.' });
     }
 
     mockDB.verifications = mockDB.verifications.filter((v) => v.id !== id);
-    return NextResponse.json({
-      success: true,
-      message: 'Rekaman verifikasi berhasil dihapus dari memori.',
-    });
+    return NextResponse.json({ success: true, message: 'Rekaman verifikasi berhasil dihapus dari memori.' });
   } catch (error: unknown) {
     console.error('Error in DELETE /api/admin/verifications:', error);
-    return NextResponse.json(
-      { success: false, message: 'Gagal menghapus rekaman verifikasi.' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, message: 'Gagal menghapus rekaman verifikasi.' }, { status: 500 });
   }
 }
