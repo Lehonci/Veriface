@@ -6,8 +6,13 @@ import {
   Loader2,
   Scan,
   ScanFace,
+  Eye,
+  ArrowRight,
+  ArrowLeft,
+  CheckCircle2,
 } from 'lucide-react';
 import { MIN_Z_VARIANCE_THRESHOLD } from '@/lib/cv/depthVariance';
+import { ActiveLivenessStatus } from '@/lib/cv/activeLiveness';
 
 interface CameraViewProps {
   videoRef: React.RefObject<HTMLVideoElement>;
@@ -22,6 +27,7 @@ interface CameraViewProps {
   is3DLiveCurrent: boolean;
   isScanning: boolean;
   scanProgress: number;
+  activeChallenge?: ActiveLivenessStatus | null;
   hasAccessory?: boolean;
   accessoryDetails?: string[];
   accessoryReason?: string | null;
@@ -47,11 +53,24 @@ export const CameraView: React.FC<CameraViewProps> = ({
   accessoryReason = null,
   isScanning,
   scanProgress,
+  activeChallenge = null,
   errorMessage,
   onStartCamera,
   onStartScan,
   canStartScan = true,
 }) => {
+  const challengeLabel = !activeChallenge
+    ? `Memindai (${scanProgress}%)...`
+    : activeChallenge.step === 'FRONTAL_CALIBRATION'
+    ? 'Tatap lurus ke kamera (kalibrasi AI)...'
+    : activeChallenge.step === 'BLINK'
+    ? 'Kedipkan kedua mata Anda 1 kali'
+    : activeChallenge.step === 'TURN_RIGHT'
+    ? 'Tengokkan wajah sedikit ke kanan'
+    : activeChallenge.step === 'TURN_LEFT'
+    ? 'Tengokkan wajah sedikit ke kiri'
+    : 'Hadapkan wajah kembali ke depan...';
+
   return (
     <div className="flex flex-col h-full justify-between">
       {/* Right Column Header */}
@@ -120,8 +139,16 @@ export const CameraView: React.FC<CameraViewProps> = ({
                 </>
               ) : isScanning ? (
                 <>
-                  <Scan className="w-3.5 h-3.5 text-rose-200 animate-spin" />
-                  <span>Memindai Kedalaman ({scanProgress}%)...</span>
+                  {activeChallenge?.step === 'BLINK' ? (
+                    <Eye className="w-3.5 h-3.5 text-rose-200" />
+                  ) : activeChallenge?.step === 'TURN_RIGHT' ? (
+                    <ArrowRight className="w-3.5 h-3.5 text-rose-200" />
+                  ) : activeChallenge?.step === 'TURN_LEFT' ? (
+                    <ArrowLeft className="w-3.5 h-3.5 text-rose-200" />
+                  ) : (
+                    <Scan className="w-3.5 h-3.5 text-rose-200 animate-spin motion-reduce:animate-none" />
+                  )}
+                  <span>{challengeLabel}</span>
                 </>
               ) : hasAccessory ? (
                 <span className="text-rose-300 font-semibold">Lepas {accessoryDetails.join(' & ') || 'Kacamata'}</span>
@@ -190,6 +217,40 @@ export const CameraView: React.FC<CameraViewProps> = ({
           </div>
         )}
 
+        {/* Active Liveness Challenge Guide Overlay */}
+        {isStreaming && isScanning && activeChallenge && (
+          <div className="absolute bottom-4 inset-x-4 flex flex-col items-center gap-2 pointer-events-none z-30">
+            <div className="px-4 py-2 rounded-2xl bg-[#1F0A10]/90 border border-white/25 text-white shadow-lg flex items-center gap-2 text-xs sm:text-sm font-bold">
+              {activeChallenge.step === 'BLINK' && <Eye className="w-4 h-4 text-rose-300 shrink-0" />}
+              {activeChallenge.step === 'TURN_RIGHT' && (
+                <ArrowRight className="w-4 h-4 text-rose-300 shrink-0" />
+              )}
+              {activeChallenge.step === 'TURN_LEFT' && (
+                <ArrowLeft className="w-4 h-4 text-rose-300 shrink-0" />
+              )}
+              <span>{challengeLabel}</span>
+            </div>
+
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/70 border border-white/15 text-[11px] font-semibold">
+              {[
+                { key: 'blink', label: 'Kedip', done: activeChallenge.blinkDetected },
+                { key: 'right', label: 'Kanan', done: activeChallenge.turnRightDetected },
+                { key: 'left', label: 'Kiri', done: activeChallenge.turnLeftDetected },
+              ].map((item) => (
+                <span
+                  key={item.key}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${
+                    item.done ? 'bg-emerald-500/25 text-emerald-300' : 'text-white/75'
+                  }`}
+                >
+                  {item.done && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+                  <span>{item.label}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Scan Progress Bar */}
         {isScanning && (
           <div className="absolute bottom-0 inset-x-0 h-1.5 bg-black/60 z-30">
@@ -217,7 +278,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
           />
           <span className="text-xs text-[#4A1A28] font-medium leading-relaxed">
             {isScanning
-              ? 'Sedang memindai geometri wajah... Tatap lurus ke kamera selama 2-3 detik secara alami.'
+              ? `${challengeLabel} Ikuti instruksi kedip mata dan tengok kanan-kiri di layar.`
               : hasAccessory
               ? accessoryReason || 'Lepas kacamata atau masker penutup muka untuk melanjutkan verifikasi.'
               : faceDetected

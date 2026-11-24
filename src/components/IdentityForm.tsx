@@ -153,7 +153,7 @@ export const IdentityForm: React.FC<IdentityFormProps> = ({
               {isScanning ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Memindai Liveness (2-3 detik)...</span>
+                  <span>Memindai Liveness Aktif...</span>
                 </>
               ) : isStreaming ? (
                 hasAccessory ? (

@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       snapshotBase64,
       challengeToken,
       virtualCameraDetected,
+      activeLiveness,
     } = await req.json();
 
     const userAgent = req.headers.get('user-agent') || 'Unknown Browser';
@@ -49,6 +50,21 @@ export async function POST(req: NextRequest) {
     const challengeCheck = await consumeScanChallengeToken(challengeToken, ipAddress, userAgent, true);
     if (!challengeCheck.valid) {
       return NextResponse.json({ success: false, message: challengeCheck.reason }, { status: 403 });
+    }
+
+    const activePassed =
+      activeLiveness?.blinkDetected === true &&
+      activeLiveness?.turnRightDetected === true &&
+      activeLiveness?.turnLeftDetected === true;
+    if (!activePassed) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Uji Active Liveness (kedip mata & tengok kanan-kiri) belum lengkap. Silakan pindai ulang wajah Anda.',
+        },
+        { status: 403 }
+      );
     }
 
     const cleanName = typeof fullName === 'string' ? fullName.trim() : '';

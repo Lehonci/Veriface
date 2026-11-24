@@ -101,6 +101,7 @@ export default function GatewayPage() {
     accessoryReason,
     isScanning,
     scanProgress,
+    activeChallenge,
     startLivenessScan,
     resetScan,
     latestLandmarks,
@@ -122,6 +123,11 @@ export default function GatewayPage() {
       confidenceScore: number;
       sampleCount: number;
       failureReason?: string;
+    };
+    activeLiveness?: {
+      blinkDetected: boolean;
+      turnRightDetected: boolean;
+      turnLeftDetected: boolean;
     };
     latestLandmarks?: LandmarkPoint[];
     snapshotBase64?: string;
@@ -168,6 +174,7 @@ export default function GatewayPage() {
             snapshotBase64,
             challengeToken: activeChallenge,
             virtualCameraDetected: false,
+            activeLiveness: result.activeLiveness,
           }),
         });
 
@@ -500,6 +507,7 @@ export default function GatewayPage() {
                   accessoryReason={accessoryReason}
                   isScanning={isScanning || isVerifying}
                   scanProgress={scanProgress}
+                  activeChallenge={activeChallenge}
                   errorMessage={cameraError || modelError}
                   onStartCamera={startCamera}
                   canStartScan={isFormValid}
