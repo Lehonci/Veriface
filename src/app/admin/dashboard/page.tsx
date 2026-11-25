@@ -1988,14 +1988,22 @@ export default function AdminDashboardPage() {
                       {(() => {
                         const effectiveDecision =
                           admittedList[selectedRecord.id] || selectedRecord.admin_decision;
+                        const isAdmitted =
+                          effectiveDecision === 'ADMITTED' || effectiveDecision === 'AUTO_ADMITTED';
+                        const isRemoved = effectiveDecision === 'REMOVED';
+                        const isDecided = isAdmitted || isRemoved;
                         return (
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <button
+                              type="button"
+                              disabled={isDecided}
                               onClick={() => handleDecision(selectedRecord.id, 'ADMITTED')}
                               className={`w-full py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-                                effectiveDecision === 'ADMITTED'
-                                  ? 'bg-[#12B76A] text-white shadow-md shadow-[#12B76A]/20'
-                                  : 'bg-[#EDF9F4] text-[#12B76A] hover:bg-[#DDF4EA] border border-[#A6F4C5]'
+                                isAdmitted
+                                  ? 'bg-[#12B76A]/70 text-white border border-[#12B76A]/40 opacity-75 cursor-not-allowed'
+                                  : isDecided
+                                  ? 'bg-gray-100 text-gray-400 border border-gray-200 opacity-60 cursor-not-allowed'
+                                  : 'bg-[#EDF9F4] text-[#12B76A] hover:bg-[#DDF4EA] border border-[#A6F4C5] cursor-pointer'
                               }`}
                             >
                               <CheckCircle2 className="w-4 h-4" />
@@ -2003,11 +2011,15 @@ export default function AdminDashboardPage() {
                             </button>
 
                             <button
+                              type="button"
+                              disabled={isDecided}
                               onClick={() => handleDecision(selectedRecord.id, 'REMOVED')}
                               className={`w-full py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-                                effectiveDecision === 'REMOVED'
-                                  ? 'bg-[#F04438] text-white shadow-md shadow-[#F04438]/20'
-                                  : 'bg-[#FEE4E2] text-[#F04438] hover:bg-[#FCD4D0] border border-[#FECDCA]'
+                                isRemoved
+                                  ? 'bg-[#F04438]/70 text-white border border-[#F04438]/40 opacity-75 cursor-not-allowed'
+                                  : isDecided
+                                  ? 'bg-gray-100 text-gray-400 border border-gray-200 opacity-60 cursor-not-allowed'
+                                  : 'bg-[#FEE4E2] text-[#F04438] hover:bg-[#FCD4D0] border border-[#FECDCA] cursor-pointer'
                               }`}
                             >
                               <AlertTriangle className="w-4 h-4" />

@@ -70,13 +70,13 @@ export const FailureAlert: React.FC<FailureAlertProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch gap-3">
           {canAppeal && onRequestAppeal && (
             <button
               type="button"
               onClick={onRequestAppeal}
               disabled={isRequestingAppeal}
-              className="flex-1 px-4 py-3.5 rounded-2xl text-xs sm:text-sm font-bold bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+              className="w-full sm:flex-1 min-h-[48px] px-3.5 py-3 rounded-2xl text-xs sm:text-[13px] font-bold bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50 sm:whitespace-nowrap"
             >
               <UserCheck className="w-4 h-4 text-amber-700 shrink-0" />
               <span>{isRequestingAppeal ? 'Mengirim...' : 'Ajukan Tinjauan Admin'}</span>
@@ -86,7 +86,7 @@ export const FailureAlert: React.FC<FailureAlertProps> = ({
           <button
             type="button"
             onClick={onRetry}
-            className="flex-1 px-5 py-3.5 rounded-2xl text-xs sm:text-sm font-bold bg-[#7B2E46] hover:bg-[#682238] border border-[#7B2E46] text-white flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md shadow-[#7B2E46]/25"
+            className="w-full sm:flex-1 min-h-[48px] px-3.5 py-3 rounded-2xl text-xs sm:text-[13px] font-bold bg-[#7B2E46] hover:bg-[#682238] border border-[#7B2E46] text-white flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md shadow-[#7B2E46]/25 sm:whitespace-nowrap"
           >
             <RefreshCw className="w-4 h-4 text-[#FFFDF9] shrink-0" />
             <span>Coba Ulangi Pemindaian</span>
